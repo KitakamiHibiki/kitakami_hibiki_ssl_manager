@@ -30,3 +30,15 @@ go.work.sum
 # Editor/IDE
 # .idea/
 # .vscode/
+
+# Frontend build output
+web/dist/
+web/node_modules/
+
+# Local data
+/data/
+
+# Build output
+/bin/
+/ssl-manager
+/ssl-manager.exe
