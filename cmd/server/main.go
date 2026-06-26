@@ -81,7 +81,7 @@ func main() {
 		{
 			domains.GET("", domainH.List)
 			domains.POST("", domainH.Create)
-			domains.DELETE("/:id", domainH.Delete)
+			domains.DELETE("", domainH.Delete)
 		}
 
 		certs := api.Group("/certs")
@@ -90,8 +90,8 @@ func main() {
 			certs.POST("/apply", certH.Apply)
 			certs.POST("/renew", certH.Renew)
 			certs.GET("", certH.List)
-			certs.GET("/:id", certH.Get)
-			certs.GET("/:id/download", certH.Download)
+			certs.GET("/detail", certH.Get)
+			certs.GET("/download", certH.Download)
 		}
 
 		deploy := api.Group("/deploy")
@@ -104,8 +104,8 @@ func main() {
 		users.Use(authMw, adminMw)
 		{
 			users.GET("", userH.List)
-			users.PUT("/:id", userH.UpdateRole)
-			users.DELETE("/:id", userH.Delete)
+			users.PUT("", userH.UpdateRole)
+			users.DELETE("", userH.Delete)
 		}
 
 		api.GET("/platform", authMw, deployH.Platform)

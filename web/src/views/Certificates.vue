@@ -50,7 +50,7 @@ async function renew(id: number) {
 }
 
 function download(id: number) {
-  window.open(`/api/certs/${id}/download`)
+  window.open(`/api/certs/download?id=${id}`)
 }
 
 onMounted(load)

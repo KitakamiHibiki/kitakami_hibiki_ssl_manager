@@ -75,7 +75,7 @@ export function createDomain(data: { domain: string; email: string; challenge?: 
 }
 
 export function deleteDomain(id: number) {
-  return api.delete(`/domains/${id}`)
+  return api.delete('/domains', { params: { id } })
 }
 
 // Certificates
@@ -84,7 +84,7 @@ export function getCertificates() {
 }
 
 export function getCertificate(id: number) {
-  return api.get<Certificate>(`/certs/${id}`)
+  return api.get<Certificate>('/certs/detail', { params: { id } })
 }
 
 export function applyCertificate(data: { domain_id?: number; domain?: string; email?: string }) {
@@ -110,11 +110,11 @@ export function getUsers() {
 }
 
 export function updateUser(id: number, role: string) {
-  return api.put(`/users/${id}`, { role })
+  return api.put('/users', { id, role })
 }
 
 export function deleteUser(id: number) {
-  return api.delete(`/users/${id}`)
+  return api.delete('/users', { params: { id } })
 }
 
 export default api

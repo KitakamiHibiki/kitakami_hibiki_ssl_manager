@@ -27,17 +27,12 @@ func (h *UserHandler) List(c *gin.Context) {
 }
 
 func (h *UserHandler) UpdateRole(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
-		return
-	}
-
 	var req struct {
+		ID   uint   `json:"id"`
 		Role string `json:"role"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request, id required"})
 		return
 	}
 	if req.Role != "admin" && req.Role != "user" {
@@ -45,7 +40,7 @@ func (h *UserHandler) UpdateRole(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.GetUserByID(uint(id))
+	user, err := h.db.GetUserByID(req.ID)
 	if err != nil {
 		c.JSON(http.StatusNotFound, gin.H{"error": "user not found"})
 		return
@@ -61,8 +56,8 @@ func (h *UserHandler) UpdateRole(c *gin.Context) {
 }
 
 func (h *UserHandler) Delete(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Param("id"), 10, 64)
-	if err != nil {
+	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
+	if err != nil || id == 0 {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
