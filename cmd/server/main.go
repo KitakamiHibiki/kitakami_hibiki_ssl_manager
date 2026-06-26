@@ -39,7 +39,7 @@ func main() {
 	}
 	db.SeedAdmin()
 
-	certDir := plat.CertDir()
+	certDir := "./certs"
 	if err := os.MkdirAll(certDir, 0755); err != nil {
 		log.Fatalf("create cert dir: %v", err)
 	}

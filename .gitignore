@@ -37,6 +37,7 @@ web/node_modules/
 
 # Local data
 /data/
+/certs/
 
 # Build output
 /bin/

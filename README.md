@@ -55,26 +55,21 @@ go run ./cmd/server
 │   └── store/             # 数据持久化
 ├── web/                   # 前端代码
 ├── config.yaml            # 配置文件
+├── data/                  # 运行时生成 — 数据库
+├── certs/                 # 运行时生成 — 证书文件
 └── Makefile
 ```
 
-## 配置
+所有运行时数据（数据库、证书）均存储在可执行文件所在的工作目录下。
 
-```yaml
-# config.yaml
-server:
-  port: 8080
+## 平台差异
 
-acme:
-  directory: https://acme-v02.api.letsencrypt.org/directory
+仅 Nginx 部署涉及平台差异：
 
-storage:
-  driver: sqlite            # sqlite | postgres
-  dsn: ./data/certs.db
-
-notification:
-  email: admin@example.com  # 证书到期通知邮箱
-```
+| 项目 | Linux | Windows |
+|---|---|---|
+| Nginx 配置路径 | `/etc/nginx/conf.d/` | `C:\nginx\conf\conf.d\` |
+| Nginx 重载命令 | `systemctl reload nginx` | `nginx -s reload` |
 
 ## 许可证
 
