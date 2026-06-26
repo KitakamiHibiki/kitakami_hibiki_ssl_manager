@@ -18,10 +18,22 @@ func NewDomainHandler(db *store.DB) *DomainHandler {
 }
 
 func (h *DomainHandler) List(c *gin.Context) {
-	domains, err := h.db.ListDomains()
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	var domains []store.Domain
+	var err error
+	if role == "admin" {
+		domains, err = h.db.ListDomains()
+	} else {
+		domains, err = h.db.ListDomainsByUser(userID)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if domains == nil {
+		domains = []store.Domain{}
 	}
 	c.JSON(http.StatusOK, domains)
 }
@@ -32,6 +44,7 @@ func (h *DomainHandler) Create(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
 		return
 	}
+	d.UserID = c.GetUint("user_id")
 	if d.Challenge == "" {
 		d.Challenge = "http"
 	}
@@ -48,6 +61,16 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+	if role != "admin" {
+		if _, err := h.db.GetDomainByIDAndUser(uint(id), userID); err != nil {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not your domain"})
+			return
+		}
+	}
+
 	if err := h.db.DeleteDomain(uint(id)); err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return

@@ -41,6 +41,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 		return
 	}
 
+	userID := c.GetUint("user_id")
 	domain := req.Domain
 	email := req.Email
 	var domainID uint
@@ -51,6 +52,10 @@ func (h *CertHandler) Apply(c *gin.Context) {
 			c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
 			return
 		}
+		if d.UserID != userID {
+			c.JSON(http.StatusForbidden, gin.H{"error": "not your domain"})
+			return
+		}
 		domain = d.Domain
 		email = d.Email
 		domainID = d.ID
@@ -58,7 +63,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 		if email == "" {
 			email = "admin@" + domain
 		}
-		d := &store.Domain{Domain: domain, Email: email, Challenge: "http"}
+		d := &store.Domain{Domain: domain, Email: email, Challenge: "http", UserID: userID}
 		if err := h.db.CreateDomain(d); err != nil {
 			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 			return
@@ -120,9 +125,10 @@ func (h *CertHandler) Renew(c *gin.Context) {
 		return
 	}
 
-	cert, err := h.db.GetCertificate(req.CertificateID)
+	userID := c.GetUint("user_id")
+	cert, err := h.db.GetCertificateByIDAndUser(req.CertificateID, userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
 		return
 	}
 
@@ -158,10 +164,22 @@ func (h *CertHandler) Renew(c *gin.Context) {
 }
 
 func (h *CertHandler) List(c *gin.Context) {
-	certs, err := h.db.ListCertificates()
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	var certs []store.Certificate
+	var err error
+	if role == "admin" {
+		certs, err = h.db.ListCertificates()
+	} else {
+		certs, err = h.db.ListCertificatesByUser(userID)
+	}
 	if err != nil {
 		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
 		return
+	}
+	if certs == nil {
+		certs = []store.Certificate{}
 	}
 	c.JSON(http.StatusOK, certs)
 }
@@ -172,9 +190,10 @@ func (h *CertHandler) Get(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	cert, err := h.db.GetCertificate(uint(id))
+	userID := c.GetUint("user_id")
+	cert, err := h.db.GetCertificateByIDAndUser(uint(id), userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
 		return
 	}
 	c.JSON(http.StatusOK, cert)
@@ -186,9 +205,10 @@ func (h *CertHandler) Download(c *gin.Context) {
 		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
 		return
 	}
-	cert, err := h.db.GetCertificate(uint(id))
+	userID := c.GetUint("user_id")
+	cert, err := h.db.GetCertificateByIDAndUser(uint(id), userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
 		return
 	}
 

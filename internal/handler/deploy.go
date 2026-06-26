@@ -31,9 +31,10 @@ func (h *DeployHandler) Deploy(c *gin.Context) {
 		return
 	}
 
-	cert, err := h.db.GetCertificate(req.CertificateID)
+	userID := c.GetUint("user_id")
+	cert, err := h.db.GetCertificateByIDAndUser(req.CertificateID, userID)
 	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "certificate not found"})
+		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
 		return
 	}
 

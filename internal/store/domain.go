@@ -10,9 +10,24 @@ func (db *DB) ListDomains() ([]Domain, error) {
 	return domains, err
 }
 
+func (db *DB) ListDomainsByUser(userID uint) ([]Domain, error) {
+	var domains []Domain
+	err := db.Where("user_id = ?", userID).Find(&domains).Error
+	return domains, err
+}
+
 func (db *DB) GetDomain(id uint) (*Domain, error) {
 	var d Domain
 	err := db.First(&d, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &d, nil
+}
+
+func (db *DB) GetDomainByIDAndUser(id, userID uint) (*Domain, error) {
+	var d Domain
+	err := db.Where("id = ? AND user_id = ?", id, userID).First(&d).Error
 	if err != nil {
 		return nil, err
 	}

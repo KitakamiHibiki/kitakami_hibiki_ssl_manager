@@ -9,6 +9,7 @@ import (
 
 type Domain struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
+	UserID    uint      `gorm:"index;not null" json:"user_id"`
 	Domain    string    `gorm:"uniqueIndex;not null" json:"domain"`
 	Email     string    `gorm:"not null" json:"email"`
 	Challenge string    `gorm:"default:http" json:"challenge"` // http | dns
