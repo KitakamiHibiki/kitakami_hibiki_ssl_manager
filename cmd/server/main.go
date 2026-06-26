@@ -13,6 +13,7 @@ import (
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/config"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/deploy"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/handler"
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/middleware"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/platform"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/scheduler"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
@@ -36,6 +37,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("init db: %v", err)
 	}
+	db.SeedAdmin()
 
 	certDir := plat.CertDir()
 	if err := os.MkdirAll(certDir, 0755); err != nil {
@@ -43,6 +45,7 @@ func main() {
 	}
 
 	httpProvider := acme.NewHTTPProvider()
+	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret)
 	domainH := handler.NewDomainHandler(db)
 	certH := handler.NewCertHandler(db, cfg, certDir, httpProvider)
 	nginxD := deploy.NewNginxDeployer(plat)
@@ -63,20 +66,39 @@ func main() {
 		httpProvider.ServeHTTP(c.Writer, c.Request)
 	})
 
+	authMw := middleware.AuthRequired(cfg.Auth.JWTSecret)
+
 	api := r.Group("/api")
 	{
-		api.GET("/domains", domainH.List)
-		api.POST("/domains", domainH.Create)
-		api.DELETE("/domains/:id", domainH.Delete)
+		api.POST("/auth/register", authH.Register)
+		api.POST("/auth/login", authH.Login)
+		api.GET("/auth/me", authMw, authH.Me)
 
-		api.POST("/certs/apply", certH.Apply)
-		api.POST("/certs/renew", certH.Renew)
-		api.GET("/certs", certH.List)
-		api.GET("/certs/:id", certH.Get)
-		api.GET("/certs/:id/download", certH.Download)
+		domains := api.Group("/domains")
+		domains.Use(authMw)
+		{
+			domains.GET("", domainH.List)
+			domains.POST("", domainH.Create)
+			domains.DELETE("/:id", domainH.Delete)
+		}
 
-		api.POST("/deploy", deployH.Deploy)
-		api.GET("/platform", deployH.Platform)
+		certs := api.Group("/certs")
+		certs.Use(authMw)
+		{
+			certs.POST("/apply", certH.Apply)
+			certs.POST("/renew", certH.Renew)
+			certs.GET("", certH.List)
+			certs.GET("/:id", certH.Get)
+			certs.GET("/:id/download", certH.Download)
+		}
+
+		deploy := api.Group("/deploy")
+		deploy.Use(authMw)
+		{
+			deploy.POST("", deployH.Deploy)
+		}
+
+		api.GET("/platform", authMw, deployH.Platform)
 	}
 
 	r.NoRoute(func(c *gin.Context) {

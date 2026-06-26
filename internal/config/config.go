@@ -12,6 +12,7 @@ type Config struct {
 	Storage  StorageConfig  `yaml:"storage"`
 	Sched    SchedulerConfig `yaml:"scheduler"`
 	Notify   NotifyConfig   `yaml:"notification"`
+	Auth     AuthConfig     `yaml:"auth"`
 }
 
 type ServerConfig struct {
@@ -35,6 +36,10 @@ type SchedulerConfig struct {
 type NotifyConfig struct {
 	Email   string `yaml:"email"`
 	Webhook string `yaml:"webhook"`
+}
+
+type AuthConfig struct {
+	JWTSecret string `yaml:"jwt_secret"`
 }
 
 func Load(path string) (*Config, error) {

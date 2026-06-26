@@ -17,3 +17,6 @@ scheduler:
 notification:
   email: ""
   webhook: ""
+
+auth:
+  jwt_secret: "change-me-in-production"

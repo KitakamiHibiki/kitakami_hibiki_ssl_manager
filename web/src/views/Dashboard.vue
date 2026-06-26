@@ -5,25 +5,25 @@
       <el-col :span="6">
         <el-card shadow="hover">
           <template #header>域名总数</template>
-          <div class="stat">{{ domains.length }}</div>
+          <div class="stat">{{ loading ? '-' : domains.length }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover">
           <template #header>已签发证书</template>
-          <div class="stat">{{ issuedCount }}</div>
+          <div class="stat">{{ loading ? '-' : issuedCount }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover">
           <template #header>即将过期</template>
-          <div class="stat warn">{{ expiringCount }}</div>
+          <div class="stat warn">{{ loading ? '-' : expiringCount }}</div>
         </el-card>
       </el-col>
       <el-col :span="6">
         <el-card shadow="hover">
           <template #header>当前平台</template>
-          <div class="stat">{{ platform }}</div>
+          <div class="stat">{{ platform || '未知' }}</div>
         </el-card>
       </el-col>
     </el-row>
@@ -37,6 +37,7 @@ import { getDomains, getCertificates, getPlatform } from '../api'
 const domains = ref<any[]>([])
 const certificates = ref<any[]>([])
 const platform = ref('')
+const loading = ref(true)
 
 const issuedCount = computed(() => certificates.value.filter((c: any) => c.status === 'issued').length)
 const expiringCount = computed(() => {
@@ -51,13 +52,19 @@ const expiringCount = computed(() => {
 
 onMounted(async () => {
   try {
-    const [d, c, p] = await Promise.all([getDomains(), getCertificates(), getPlatform()])
+    const [d, c] = await Promise.all([getDomains(), getCertificates()])
     domains.value = d.data
     certificates.value = c.data
-    platform.value = `${p.data.os}/${p.data.arch}`
   } catch (e) {
     console.error(e)
   }
+  try {
+    const p = await getPlatform()
+    platform.value = `${p.data.os}/${p.data.arch}`
+  } catch (e) {
+    console.error('platform fetch failed:', e)
+  }
+  loading.value = false
 })
 </script>
 

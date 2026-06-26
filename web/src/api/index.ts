@@ -1,9 +1,30 @@
 import axios from 'axios'
+import { useAuth } from '../stores/auth'
 
 const api = axios.create({
   baseURL: '/api',
   timeout: 30000,
 })
+
+api.interceptors.request.use((config) => {
+  const { state } = useAuth()
+  if (state.token) {
+    config.headers.Authorization = `Bearer ${state.token}`
+  }
+  return config
+})
+
+api.interceptors.response.use(
+  (res) => res,
+  (err) => {
+    if (err.response?.status === 401) {
+      const { logout } = useAuth()
+      logout()
+      window.location.href = '/login'
+    }
+    return Promise.reject(err)
+  }
+)
 
 export interface Domain {
   id: number
@@ -28,6 +49,16 @@ export interface PlatformInfo {
   arch: string
 }
 
+// Auth
+export function authLogin(username: string, password: string) {
+  return api.post('/auth/login', { username, password })
+}
+
+export function authRegister(username: string, password: string) {
+  return api.post('/auth/register', { username, password })
+}
+
+// Domains
 export function getDomains() {
   return api.get<Domain[]>('/domains')
 }
@@ -40,6 +71,7 @@ export function deleteDomain(id: number) {
   return api.delete(`/domains/${id}`)
 }
 
+// Certificates
 export function getCertificates() {
   return api.get<Certificate[]>('/certs')
 }
@@ -60,6 +92,7 @@ export function deployCertificate(certificate_id: number, target: string) {
   return api.post('/deploy', { certificate_id, target })
 }
 
+// Platform
 export function getPlatform() {
   return api.get<PlatformInfo>('/platform')
 }

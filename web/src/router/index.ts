@@ -1,8 +1,15 @@
 import { createRouter, createWebHistory } from 'vue-router'
+import { useAuth } from '../stores/auth'
 
 const router = createRouter({
   history: createWebHistory(),
   routes: [
+    {
+      path: '/login',
+      name: 'login',
+      component: () => import('../views/Login.vue'),
+      meta: { guest: true },
+    },
     {
       path: '/',
       name: 'dashboard',
@@ -24,6 +31,16 @@ const router = createRouter({
       component: () => import('../views/Deploy.vue'),
     },
   ],
+})
+
+router.beforeEach((to, _from, next) => {
+  const { isLoggedIn } = useAuth()
+  if (to.meta.guest) {
+    if (isLoggedIn()) return next('/')
+    return next()
+  }
+  if (!isLoggedIn()) return next('/login')
+  next()
 })
 
 export default router

@@ -35,7 +35,7 @@ func InitDB(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&Domain{}, &Certificate{}); err != nil {
+	if err := db.AutoMigrate(&Domain{}, &Certificate{}, &User{}); err != nil {
 		return nil, err
 	}
 	return &DB{db}, nil
