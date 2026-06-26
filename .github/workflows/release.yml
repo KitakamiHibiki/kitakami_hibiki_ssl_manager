@@ -50,10 +50,10 @@ jobs:
 
       - name: Package
         run: |
-          mkdir -p release/kitakami_hibiki_ssl_manager
+          mkdir -p release/kitakami_hibiki_ssl_manager/web
           cp ssl-manager${{ matrix.ext }} release/kitakami_hibiki_ssl_manager/
           cp config.yaml release/kitakami_hibiki_ssl_manager/
-          cp -r web/dist release/kitakami_hibiki_ssl_manager/web/dist
+          cp -r web/dist release/kitakami_hibiki_ssl_manager/web/
           cd release
           if [ "${{ matrix.goos }}" = "windows" ]; then
             7z a ../ssl-manager-${{ matrix.goos }}-${{ matrix.arch }}.zip kitakami_hibiki_ssl_manager
