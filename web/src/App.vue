@@ -19,6 +19,10 @@
           <el-icon><Upload /></el-icon>
           <span>部署管理</span>
         </el-menu-item>
+        <el-menu-item v-if="isAdmin" index="/users">
+          <el-icon><User /></el-icon>
+          <span>用户管理</span>
+        </el-menu-item>
       </el-menu>
     </el-aside>
     <el-container>
@@ -39,12 +43,13 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Monitor, Link, Document, Upload } from '@element-plus/icons-vue'
+import { Monitor, Link, Document, Upload, User } from '@element-plus/icons-vue'
 import { useAuth } from './stores/auth'
 
 const router = useRouter()
 const { state, logout } = useAuth()
 const username = computed(() => state.username)
+const isAdmin = computed(() => state.role === 'admin')
 
 function handleLogout() {
   logout()

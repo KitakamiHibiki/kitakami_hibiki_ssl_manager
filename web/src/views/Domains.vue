@@ -14,7 +14,7 @@
       <el-table-column label="操作" width="150">
         <template #default="{ row }">
           <el-button size="small" type="success" @click="applyCert(row)">申请证书</el-button>
-          <el-button size="small" type="danger" @click="remove(row.id)">删除</el-button>
+          <el-button v-if="isAdmin" size="small" type="danger" @click="remove(row.id)">删除</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -43,9 +43,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getDomains, createDomain, deleteDomain, applyCertificate } from '../api'
+import { useAuth } from '../stores/auth'
+
+const { state } = useAuth()
+const isAdmin = computed(() => state.role === 'admin')
 
 const domains = ref<any[]>([])
 const showDialog = ref(false)

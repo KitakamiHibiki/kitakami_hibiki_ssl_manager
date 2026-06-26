@@ -38,6 +38,14 @@ func (db *DB) ListUsers() ([]User, error) {
 	return users, err
 }
 
+func (db *DB) UpdateUserRole(u *User) error {
+	return db.Model(u).Update("role", u.Role).Error
+}
+
+func (db *DB) DeleteUser(id uint) error {
+	return db.Delete(&User{}, id).Error
+}
+
 func (db *DB) SeedAdmin() {
 	var count int64
 	db.Model(&User{}).Count(&count)

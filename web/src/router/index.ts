@@ -30,6 +30,11 @@ const router = createRouter({
       name: 'deploy',
       component: () => import('../views/Deploy.vue'),
     },
+    {
+      path: '/users',
+      name: 'users',
+      component: () => import('../views/Users.vue'),
+    },
   ],
 })
 

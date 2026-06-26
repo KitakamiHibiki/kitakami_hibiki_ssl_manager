@@ -48,6 +48,7 @@ func main() {
 	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret)
 	domainH := handler.NewDomainHandler(db)
 	certH := handler.NewCertHandler(db, cfg, certDir, httpProvider)
+	userH := handler.NewUserHandler(db)
 	nginxD := deploy.NewNginxDeployer(plat)
 	localD := deploy.NewLocalDeployer(certDir)
 	deployH := handler.NewDeployHandler(db, nginxD, localD, certDir)
@@ -67,6 +68,7 @@ func main() {
 	})
 
 	authMw := middleware.AuthRequired(cfg.Auth.JWTSecret)
+	adminMw := middleware.AdminRequired()
 
 	api := r.Group("/api")
 	{
@@ -79,7 +81,7 @@ func main() {
 		{
 			domains.GET("", domainH.List)
 			domains.POST("", domainH.Create)
-			domains.DELETE("/:id", domainH.Delete)
+			domains.DELETE("/:id", adminMw, domainH.Delete)
 		}
 
 		certs := api.Group("/certs")
@@ -93,9 +95,17 @@ func main() {
 		}
 
 		deploy := api.Group("/deploy")
-		deploy.Use(authMw)
+		deploy.Use(authMw, adminMw)
 		{
 			deploy.POST("", deployH.Deploy)
+		}
+
+		users := api.Group("/users")
+		users.Use(authMw, adminMw)
+		{
+			users.GET("", userH.List)
+			users.PUT("/:id", userH.UpdateRole)
+			users.DELETE("/:id", userH.Delete)
 		}
 
 		api.GET("/platform", authMw, deployH.Platform)

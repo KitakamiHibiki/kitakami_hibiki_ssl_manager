@@ -49,6 +49,13 @@ export interface PlatformInfo {
   arch: string
 }
 
+export interface User {
+  id: number
+  username: string
+  role: string
+  created_at: string
+}
+
 // Auth
 export function authLogin(username: string, password: string) {
   return api.post('/auth/login', { username, password })
@@ -95,6 +102,19 @@ export function deployCertificate(certificate_id: number, target: string) {
 // Platform
 export function getPlatform() {
   return api.get<PlatformInfo>('/platform')
+}
+
+// Users (admin)
+export function getUsers() {
+  return api.get<User[]>('/users')
+}
+
+export function updateUser(id: number, role: string) {
+  return api.put(`/users/${id}`, { role })
+}
+
+export function deleteUser(id: number) {
+  return api.delete(`/users/${id}`)
 }
 
 export default api
