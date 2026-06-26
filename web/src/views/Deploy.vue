@@ -1,26 +1,24 @@
 <template>
   <div class="deploy">
     <h2>部署管理</h2>
-    <template v-if="isAdmin">
-      <p>选择证书部署到目标服务器。</p>
-      <el-form label-width="100px" style="max-width: 500px">
-        <el-form-item label="选择证书">
-          <el-select v-model="certId" placeholder="请选择证书">
-            <el-option v-for="c in issuedCerts" :key="c.id" :label="c.domain" :value="c.id" />
-          </el-select>
-        </el-form-item>
-        <el-form-item label="部署目标">
-          <el-select v-model="target">
-            <el-option label="Nginx" value="nginx" />
-            <el-option label="本地目录" value="local" />
-          </el-select>
-        </el-form-item>
-        <el-form-item>
-          <el-button type="primary" @click="deploy">部署</el-button>
-        </el-form-item>
-      </el-form>
-    </template>
-    <el-empty v-else description="仅管理员可操作" />
+    <p>选择证书部署到目标服务器。</p>
+
+    <el-form label-width="100px" style="max-width: 500px">
+      <el-form-item label="选择证书">
+        <el-select v-model="certId" placeholder="请选择证书">
+          <el-option v-for="c in issuedCerts" :key="c.id" :label="c.domain" :value="c.id" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="部署目标">
+        <el-select v-model="target">
+          <el-option label="Nginx" value="nginx" />
+          <el-option label="本地目录" value="local" />
+        </el-select>
+      </el-form-item>
+      <el-form-item>
+        <el-button type="primary" @click="deploy">部署</el-button>
+      </el-form-item>
+    </el-form>
   </div>
 </template>
 
@@ -28,10 +26,6 @@
 import { ref, computed, onMounted } from 'vue'
 import { ElMessage } from 'element-plus'
 import { getCertificates, deployCertificate } from '../api'
-import { useAuth } from '../stores/auth'
-
-const { state } = useAuth()
-const isAdmin = computed(() => state.role === 'admin')
 
 const certs = ref<any[]>([])
 const certId = ref<number | null>(null)
