@@ -1,5 +1,6 @@
 import { createRouter, createWebHistory } from 'vue-router'
 import { useAuth } from '../stores/auth'
+import Layout from '../Layout.vue'
 
 const router = createRouter({
   history: createWebHistory(),
@@ -12,28 +13,34 @@ const router = createRouter({
     },
     {
       path: '/',
-      name: 'dashboard',
-      component: () => import('../views/Dashboard.vue'),
-    },
-    {
-      path: '/domains',
-      name: 'domains',
-      component: () => import('../views/Domains.vue'),
-    },
-    {
-      path: '/certificates',
-      name: 'certificates',
-      component: () => import('../views/Certificates.vue'),
-    },
-    {
-      path: '/deploy',
-      name: 'deploy',
-      component: () => import('../views/Deploy.vue'),
-    },
-    {
-      path: '/users',
-      name: 'users',
-      component: () => import('../views/Users.vue'),
+      component: Layout,
+      children: [
+        {
+          path: '',
+          name: 'dashboard',
+          component: () => import('../views/Dashboard.vue'),
+        },
+        {
+          path: 'domains',
+          name: 'domains',
+          component: () => import('../views/Domains.vue'),
+        },
+        {
+          path: 'certificates',
+          name: 'certificates',
+          component: () => import('../views/Certificates.vue'),
+        },
+        {
+          path: 'deploy',
+          name: 'deploy',
+          component: () => import('../views/Deploy.vue'),
+        },
+        {
+          path: 'users',
+          name: 'users',
+          component: () => import('../views/Users.vue'),
+        },
+      ],
     },
   ],
 })

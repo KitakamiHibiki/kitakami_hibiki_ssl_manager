@@ -4,7 +4,13 @@
       <h2>{{ isLogin ? '登录' : '注册' }}</h2>
       <el-form @submit.prevent="submit">
         <el-form-item>
-          <el-input v-model="form.username" placeholder="用户名" prefix-icon="User" />
+          <el-autocomplete
+            v-model="form.email"
+            :fetch-suggestions="queryEmailSuffix"
+            placeholder="邮箱"
+            style="width: 100%"
+            @select="selectEmailSuffix"
+          />
         </el-form-item>
         <el-form-item>
           <el-input v-model="form.password" type="password" placeholder="密码" show-password />
@@ -35,17 +41,33 @@ const { login } = useAuth()
 
 const isLogin = ref(true)
 const loading = ref(false)
-const form = ref({ username: '', password: '' })
+const form = ref({ email: '', password: '' })
+
+const emailSuffixes = ['@gmail.com', '@outlook.com', '@hotmail.com', '@qq.com', '@163.com', '@126.com', '@foxmail.com', '@aliyun.com', '@yeah.net', '@sina.com', '@sohu.com', '@icloud.com']
+
+function queryEmailSuffix(query: string, cb: (list: { value: string }[]) => void) {
+  const idx = query.indexOf('@')
+  if (idx === -1 || idx === query.length - 1) return cb([])
+  const prefix = query.substring(0, idx + 1)
+  const suggestions = emailSuffixes
+    .filter(s => s.startsWith(query.substring(idx)))
+    .map(s => ({ value: prefix + s }))
+  cb(suggestions)
+}
+
+function selectEmailSuffix(item: { value: string }) {
+  form.value.email = item.value
+}
 
 async function submit() {
-  if (!form.value.username || !form.value.password) {
-    ElMessage.warning('请填写用户名和密码')
+  if (!form.value.email || !form.value.password) {
+    ElMessage.warning('请填写邮箱和密码')
     return
   }
   loading.value = true
   try {
     const fn = isLogin.value ? authLogin : authRegister
-    const { data } = await fn(form.value.username, form.value.password)
+    const { data } = await fn(form.value.email, form.value.password)
     login(data.token, data.username, data.role)
     ElMessage.success(isLogin.value ? '登录成功' : '注册成功')
     router.replace('/')

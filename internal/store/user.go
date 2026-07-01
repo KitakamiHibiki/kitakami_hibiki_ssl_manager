@@ -4,7 +4,8 @@ import "time"
 
 type User struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	Username  string    `gorm:"uniqueIndex;not null" json:"username"`
+	Email     string    `gorm:"uniqueIndex;not null" json:"email"`
+	Username  string    `gorm:"not null" json:"username"`
 	Password  string    `gorm:"not null" json:"-"`
 	Role      string    `gorm:"default:user" json:"role"`
 	CreatedAt time.Time `json:"created_at"`
@@ -17,6 +18,15 @@ func (db *DB) CreateUser(u *User) error {
 func (db *DB) FindUserByUsername(username string) (*User, error) {
 	var u User
 	err := db.Where("username = ?", username).First(&u).Error
+	if err != nil {
+		return nil, err
+	}
+	return &u, nil
+}
+
+func (db *DB) FindUserByEmail(email string) (*User, error) {
+	var u User
+	err := db.Where("email = ?", email).First(&u).Error
 	if err != nil {
 		return nil, err
 	}
@@ -51,6 +61,7 @@ func (db *DB) SeedAdmin() {
 	db.Model(&User{}).Count(&count)
 	if count == 0 {
 		db.Create(&User{
+			Email:    "admin@khssl.local",
 			Username: "admin",
 			Password: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // admin123
 			Role:     "admin",

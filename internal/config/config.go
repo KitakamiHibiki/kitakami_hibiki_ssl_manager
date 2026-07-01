@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 	"gopkg.in/yaml.v3"
 )
 
@@ -58,4 +59,27 @@ func Load(path string) (*Config, error) {
 		cfg.Sched.RenewBeforeDays = 30
 	}
 	return cfg, nil
+}
+
+// ApplySystemConfig overrides the YAML-based config with values from the database SystemConfig row.
+// Fields with zero / empty values in DB are left unchanged.
+func (c *Config) ApplySystemConfig(sc *store.SystemConfig) {
+	if sc.ACMEDirectory != "" {
+		c.ACME.Directory = sc.ACMEDirectory
+	}
+	if sc.CheckInterval != "" {
+		c.Sched.CheckInterval = sc.CheckInterval
+	}
+	if sc.RenewBeforeDays > 0 {
+		c.Sched.RenewBeforeDays = sc.RenewBeforeDays
+	}
+	if sc.NotifyEmail != "" {
+		c.Notify.Email = sc.NotifyEmail
+	}
+	if sc.NotifyWebhook != "" {
+		c.Notify.Webhook = sc.NotifyWebhook
+	}
+	if sc.JWTSecret != "" && sc.JWTSecret != "change-me-in-production" {
+		c.Auth.JWTSecret = sc.JWTSecret
+	}
 }

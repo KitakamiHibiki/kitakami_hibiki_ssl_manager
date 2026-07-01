@@ -36,8 +36,20 @@ func InitDB(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&Domain{}, &Certificate{}, &User{}); err != nil {
+	if err := db.AutoMigrate(&Domain{}, &Certificate{}, &User{}, &SystemConfig{}); err != nil {
 		return nil, err
 	}
 	return &DB{db}, nil
+}
+
+// AfterInit runs tasks that must follow InitDB: migrations and seed data.
+func (db *DB) AfterInit() error {
+	if err := db.RunMigrations(); err != nil {
+		return err
+	}
+	db.SeedAdmin()
+	if err := db.SeedSystemConfig(); err != nil {
+		return err
+	}
+	return nil
 }

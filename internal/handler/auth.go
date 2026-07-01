@@ -2,6 +2,7 @@ package handler
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
@@ -21,11 +22,11 @@ func NewAuthHandler(db *store.DB, secret string) *AuthHandler {
 
 func (h *AuthHandler) Register(c *gin.Context) {
 	var req struct {
-		Username string `json:"username"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.Username == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "username and password required"})
+	if err := c.ShouldBindJSON(&req); err != nil || req.Email == "" || req.Password == "" {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password required"})
 		return
 	}
 
@@ -35,13 +36,15 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
+	username := strings.Split(req.Email, "@")[0]
 	user := &store.User{
-		Username: req.Username,
+		Email:    req.Email,
+		Username: username,
 		Password: string(hashed),
 		Role:     "user",
 	}
 	if err := h.db.CreateUser(user); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "username already exists"})
+		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
 		return
 	}
 
@@ -60,7 +63,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 
 func (h *AuthHandler) Login(c *gin.Context) {
 	var req struct {
-		Username string `json:"username"`
+		Email    string `json:"email"`
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
@@ -68,7 +71,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	user, err := h.db.FindUserByUsername(req.Username)
+	user, err := h.db.FindUserByEmail(req.Email)
 	if err != nil {
 		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
 		return

@@ -16,6 +16,7 @@ import (
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/middleware"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/platform"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/scheduler"
+
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
 
@@ -37,7 +38,16 @@ func main() {
 	if err != nil {
 		log.Fatalf("init db: %v", err)
 	}
-	db.SeedAdmin()
+	// Phase 2: run migrations, seed data, then load runtime config from DB
+	if err := db.AfterInit(); err != nil {
+		log.Fatalf("db init: %v", err)
+	}
+	sysCfg, err := db.GetSystemConfig()
+	if err != nil {
+		log.Fatalf("load system config from db: %v", err)
+	}
+	cfg.ApplySystemConfig(sysCfg)
+	log.Printf("[config] ACME directory: %s", cfg.ACME.Directory)
 
 	certDir := "./certs"
 	if err := os.MkdirAll(certDir, 0755); err != nil {
@@ -52,6 +62,7 @@ func main() {
 	nginxD := deploy.NewNginxDeployer(plat)
 	localD := deploy.NewLocalDeployer(certDir)
 	deployH := handler.NewDeployHandler(db, nginxD, localD, certDir)
+	sysCfgH := handler.NewSystemConfigHandler(db)
 
 	sched := scheduler.New(cfg, db)
 	if err := sched.Start(func(domain, email, certDir string) error {
@@ -106,6 +117,15 @@ func main() {
 			users.GET("", userH.List)
 			users.PUT("", userH.UpdateRole)
 			users.DELETE("", userH.Delete)
+		}
+
+		// System config (admin only)
+		system := api.Group("/system")
+		system.Use(authMw, adminMw)
+		{
+			system.GET("/config", sysCfgH.Get)
+			system.PUT("/config", sysCfgH.Update)
+			system.GET("/migrations", sysCfgH.Migrations)
 		}
 
 		api.GET("/platform", authMw, deployH.Platform)

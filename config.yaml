@@ -1,22 +1,6 @@
-server:
+﻿server:
   port: 8080
-
-acme:
-  directory: https://acme-v02.api.letsencrypt.org/directory
-  # 开发测试使用 staging 环境
-  # directory: https://acme-staging-v02.api.letsencrypt.org/directory
 
 storage:
   driver: sqlite
   dsn: ./data/certs.db
-
-scheduler:
-  check_interval: "0 3 * * *"   # 每日凌晨3点检查
-  renew_before_days: 30          # 到期前30天自动续签
-
-notification:
-  email: ""
-  webhook: ""
-
-auth:
-  jwt_secret: "change-me-in-production"

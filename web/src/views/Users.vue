@@ -3,7 +3,7 @@
     <h2>用户管理</h2>
     <el-table :data="users" style="width: 100%">
       <el-table-column prop="id" label="ID" width="80" />
-      <el-table-column prop="username" label="用户名" />
+      <el-table-column prop="email" label="邮箱" />
       <el-table-column label="角色" width="120">
         <template #default="{ row }">
           <el-select

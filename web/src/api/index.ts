@@ -57,12 +57,12 @@ export interface User {
 }
 
 // Auth
-export function authLogin(username: string, password: string) {
-  return api.post('/auth/login', { username, password })
+export function authLogin(email: string, password: string) {
+  return api.post('/auth/login', { email, password })
 }
 
-export function authRegister(username: string, password: string) {
-  return api.post('/auth/register', { username, password })
+export function authRegister(email: string, password: string) {
+  return api.post('/auth/register', { email, password })
 }
 
 // Domains
