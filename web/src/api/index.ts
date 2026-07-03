@@ -120,6 +120,23 @@ export function deleteNode(id: number) {
   return api.delete('/nodes', { params: { id } })
 }
 
+export function updateNode(id: number, data: any) {
+  return api.put('/nodes', { id, ...data })
+}
+
+export function testNode(id: number) {
+  return api.get('/nodes/test', { params: { id } })
+}
+
+// Deploy
+export function deployCert(certId: number) {
+  return api.post('/certs/deploy', { cert_id: certId })
+}
+
+export function getDeployLogs(params: { cert_id?: number; domain_id?: number; page?: number; page_size?: number }) {
+  return api.get('/certs/deploy-logs', { params })
+}
+
 // Platform
 export function getPlatform() {
   return api.get<PlatformInfo>('/platform')

@@ -15,7 +15,12 @@ type Domain struct {
 	Challenge string    `gorm:"default:dns" json:"challenge"` // dns only
 	DeployEnabled bool   `gorm:"default:false" json:"deploy_enabled"`
 	DeployNodeID  uint   `gorm:"default:0" json:"deploy_node_id"`
-	DeployPath    string `gorm:"default:''" json:"deploy_path"`
+	DeployType    string `gorm:"default:nginx" json:"deploy_type"`
+	CertName      string `gorm:"default:fullchain.pem" json:"cert_name"`
+	CertPath      string `gorm:"default:/etc/nginx/certs" json:"cert_path"`
+	KeyName       string `gorm:"default:privkey.key" json:"key_name"`
+	KeyPath       string `gorm:"default:/etc/nginx/certs" json:"key_path"`
+	AutoRenew     bool   `gorm:"default:false" json:"auto_renew"`
 	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt time.Time  `json:"updated_at"`
 	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`

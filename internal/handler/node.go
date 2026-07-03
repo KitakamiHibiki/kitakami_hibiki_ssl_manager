@@ -5,6 +5,7 @@ import (
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/deploy"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
@@ -15,6 +16,25 @@ type NodeHandler struct {
 
 func NewNodeHandler(db *store.DB) *NodeHandler {
 	return &NodeHandler{db: db}
+}
+
+func (h *NodeHandler) Test(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, 400, "invalid id")
+		return
+	}
+	userID := c.GetUint("user_id")
+	node, err := h.db.ListNodeByID(uint(id))
+	if err != nil || node.UserID != userID {
+		response.Error(c, 404, "node not found")
+		return
+	}
+	if err := deploy.TestConnection(node); err != nil {
+		response.Error(c, 400, "连接失败: "+err.Error())
+		return
+	}
+	response.OK(c, gin.H{"message": "连接成功"})
 }
 
 func (h *NodeHandler) List(c *gin.Context) {
@@ -73,18 +93,8 @@ func (h *NodeHandler) Create(c *gin.Context) {
 }
 
 func (h *NodeHandler) Update(c *gin.Context) {
-	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
-	if err != nil || id == 0 {
-		response.Error(c, 400, "invalid id")
-		return
-	}
-	userID := c.GetUint("user_id")
-	node, err := h.db.ListNodeByID(uint(id))
-	if err != nil || node.UserID != userID {
-		response.Error(c, 404, "node not found")
-		return
-	}
 	var req struct {
+		ID       uint   `json:"id"`
 		Name     string `json:"name"`
 		Host     string `json:"host"`
 		Port     int    `json:"port"`
@@ -93,8 +103,14 @@ func (h *NodeHandler) Update(c *gin.Context) {
 		Password string `json:"password"`
 		SSHKey   string `json:"ssh_key"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		response.Error(c, 400, err.Error())
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
+		response.Error(c, 400, "invalid id")
+		return
+	}
+	userID := c.GetUint("user_id")
+	node, err := h.db.ListNodeByID(req.ID)
+	if err != nil || node.UserID != userID {
+		response.Error(c, 404, "node not found")
 		return
 	}
 	if req.Name != "" {

@@ -2,12 +2,25 @@ package store
 
 import "time"
 
+func (db *DB) GetCertificateByID(id uint) (*Certificate, error) {
+	var c Certificate
+	err := db.First(&c, id).Error
+	if err != nil {
+		return nil, err
+	}
+	var d Domain
+	if err := db.First(&d, c.DomainID).Error; err == nil {
+		c.Domain = d.Domain
+	}
+	return &c, nil
+}
+
 func (db *DB) CreateCertificate(c *Certificate) error {
 	return db.Create(c).Error
 }
 
 func (db *DB) UpdateCertificate(c *Certificate) error {
-	return db.Save(c).Error
+	return db.Model(c).Select("*").Omit("domain_id").Updates(c).Error
 }
 
 func (db *DB) GetCertificateByIDAndUser(id, userID uint) (*Certificate, error) {
@@ -29,6 +42,37 @@ func (db *DB) GetCertificatesByDomainID(domainID uint) ([]Certificate, error) {
 	var certs []Certificate
 	err := db.Where("domain_id = ?", domainID).Find(&certs).Error
 	return certs, err
+}
+
+func (db *DB) ListCertificatesByDomainAndUser(domainID, userID uint, offset, limit int) ([]Certificate, int64, error) {
+	var certs []Certificate
+	var total int64
+
+	if err := db.Table("certificates").
+		Joins("JOIN domains ON domains.id = certificates.domain_id").
+		Where("domains.user_id = ? AND certificates.domain_id = ?", userID, domainID).
+		Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := db.Table("certificates").
+		Joins("JOIN domains ON domains.id = certificates.domain_id").
+		Where("domains.user_id = ? AND certificates.domain_id = ?", userID, domainID).
+		Select("certificates.*").
+		Order("certificates.id DESC").
+		Offset(offset).
+		Limit(limit).
+		Find(&certs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range certs {
+		var d Domain
+		if err := db.First(&d, certs[i].DomainID).Error; err == nil {
+			certs[i].Domain = d.Domain
+		}
+	}
+	return certs, total, nil
 }
 
 func (db *DB) ListCertificatesByUser(userID uint, offset, limit int) ([]Certificate, int64, error) {

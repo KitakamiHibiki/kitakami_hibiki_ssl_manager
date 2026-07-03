@@ -64,6 +64,34 @@ func allMigrations() []Migration {
 				return nil
 			},
 		},
+		{
+			Version:     "2026-07-03-001",
+			Description: "Create deploy_logs table",
+			Up: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&DeployLog{})
+			},
+		},
+		{
+			Version:     "2026-07-03-002",
+			Description: "Add cert/key name and path fields to domains",
+			Up: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&Domain{})
+			},
+		},
+		{
+			Version:     "2026-07-03-003",
+			Description: "Add auto_renew field to domains",
+			Up: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&Domain{})
+			},
+		},
+		{
+			Version:     "2026-07-03-004",
+			Description: "Add detail field to deploy_logs",
+			Up: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&DeployLog{})
+			},
+		},
 	}
 }
 

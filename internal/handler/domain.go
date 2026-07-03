@@ -104,7 +104,12 @@ func (h *DomainHandler) Update(c *gin.Context) {
 		ID            uint   `json:"id"`
 		DeployEnabled bool   `json:"deploy_enabled"`
 		DeployNodeID  uint   `json:"deploy_node_id"`
-		DeployPath    string `json:"deploy_path"`
+		DeployType    string `json:"deploy_type"`
+		CertName      string `json:"cert_name"`
+		CertPath      string `json:"cert_path"`
+		KeyName       string `json:"key_name"`
+		KeyPath       string `json:"key_path"`
+		AutoRenew     bool   `json:"auto_renew"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
 		response.Error(c, 400, "invalid request")
@@ -128,7 +133,12 @@ func (h *DomainHandler) Update(c *gin.Context) {
 
 	domain.DeployEnabled = req.DeployEnabled
 	domain.DeployNodeID = req.DeployNodeID
-	domain.DeployPath = req.DeployPath
+	domain.DeployType = req.DeployType
+	domain.CertName = req.CertName
+	domain.CertPath = req.CertPath
+	domain.KeyName = req.KeyName
+	domain.KeyPath = req.KeyPath
+	domain.AutoRenew = req.AutoRenew
 	if err := h.db.UpdateDomain(domain); err != nil {
 		response.Error(c, 500, err.Error())
 		return

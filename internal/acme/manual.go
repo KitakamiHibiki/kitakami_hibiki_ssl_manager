@@ -1,6 +1,8 @@
 package acme
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"fmt"
 	"sync"
 	"time"
@@ -41,7 +43,7 @@ func (p *ManualProvider) Timeout() (time.Duration, time.Duration) {
 	return 30 * time.Second, 2 * time.Second
 }
 
-// GetKeyAuth returns the key auth value for a domain challenge.
+// GetKeyAuth returns the DNS-01 TXT record value (base64url-encoded SHA256 of key auth).
 func (p *ManualProvider) GetKeyAuth(domain string) string {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -49,7 +51,8 @@ func (p *ManualProvider) GetKeyAuth(domain string) string {
 	if !ok {
 		return ""
 	}
-	return r.keyAuth
+	hash := sha256.Sum256([]byte(r.keyAuth))
+	return base64.RawURLEncoding.EncodeToString(hash[:])
 }
 
 // Signal triggers the challenge for a domain to proceed.

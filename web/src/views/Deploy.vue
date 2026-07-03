@@ -2,7 +2,7 @@
   <div class="nodes-page">
     <div class="header">
       <h2>部署节点</h2>
-      <el-button type="primary" @click="showDialog = true">添加节点</el-button>
+      <el-button type="primary" @click="openAdd">添加节点</el-button>
     </div>
 
     <el-table :data="nodes" style="width:100%">
@@ -19,8 +19,10 @@
       <el-table-column prop="created_at" label="创建时间" width="180">
         <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
       </el-table-column>
-      <el-table-column label="操作" width="120">
+      <el-table-column label="操作" width="240">
         <template #default="{ row }">
+          <el-button size="small" @click="testConn(row.id)" :loading="testingId === row.id">测试</el-button>
+          <el-button size="small" @click="openEdit(row)">编辑</el-button>
           <el-button size="small" type="danger" @click="remove(row.id)">删除</el-button>
         </template>
       </el-table-column>
@@ -28,7 +30,7 @@
 
     <p v-if="nodes.length === 0 && !loading" style="color:#999;margin-top:20px">暂无节点，请添加</p>
 
-    <el-dialog v-model="showDialog" title="添加节点" width="500px">
+    <el-dialog v-model="showDialog" :title="editingId ? '编辑节点' : '添加节点'" width="500px">
       <el-form :model="form" label-width="100px">
         <el-form-item label="名称">
           <el-input v-model="form.name" placeholder="my-server" />
@@ -71,11 +73,13 @@
 <script setup lang="ts">
 import { ref, onMounted } from "vue"
 import { ElMessage } from "element-plus"
-import { getNodes, createNode, deleteNode } from "../api"
+import { getNodes, createNode, deleteNode, updateNode, testNode } from "../api"
 
 const nodes = ref<any[]>([])
 const loading = ref(true)
 const showDialog = ref(false)
+const testingId = ref(0)
+const editingId = ref(0)
 
 const defaultForm = { name: "", node_type: "ssh", host: "", port: 22, username: "", auth_type: "password", password: "", ssh_key: "" }
 const form = ref({ ...defaultForm })
@@ -85,6 +89,27 @@ function formatTime(t: string) {
   const d = new Date(t)
   const pad = (n: number) => String(n).padStart(2, "0")
   return `${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
+}
+
+function openAdd() {
+  editingId.value = 0
+  form.value = { ...defaultForm }
+  showDialog.value = true
+}
+
+function openEdit(row: any) {
+  editingId.value = row.id
+  form.value = {
+    name: row.name,
+    node_type: row.node_type,
+    host: row.host,
+    port: row.port,
+    username: row.username,
+    auth_type: row.auth_type,
+    password: "",
+    ssh_key: "",
+  }
+  showDialog.value = true
 }
 
 async function load() {
@@ -99,13 +124,19 @@ async function load() {
 
 async function submit() {
   try {
-    await createNode(form.value)
-    ElMessage.success("节点添加成功")
+    if (editingId.value) {
+      await updateNode(editingId.value, form.value)
+      ElMessage.success("节点修改成功")
+    } else {
+      await createNode(form.value)
+      ElMessage.success("节点添加成功")
+    }
     showDialog.value = false
     form.value = { ...defaultForm }
+    editingId.value = 0
     load()
   } catch (e: any) {
-    ElMessage.error(e?.response?.data?.msg || "添加失败")
+    ElMessage.error(e?.response?.data?.msg || "操作失败")
   }
 }
 
@@ -113,6 +144,18 @@ async function remove(id: number) {
   await deleteNode(id)
   ElMessage.success("节点已删除")
   load()
+}
+
+async function testConn(id: number) {
+  testingId.value = id
+  try {
+    await testNode(id)
+    ElMessage.success("连接成功")
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.msg || "连接失败")
+  } finally {
+    testingId.value = 0
+  }
 }
 
 onMounted(load)

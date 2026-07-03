@@ -51,7 +51,7 @@ func main() {
 	domainH := handler.NewDomainHandler(db)
 	certH := handler.NewCertHandler(db, cfg, certDir)
 	userH := handler.NewUserHandler(db)
-	deployH := handler.NewDeployHandler()
+	deployH := handler.NewDeployHandler(db, certDir)
 	sysCfgH := handler.NewSystemConfigHandler(db)
 	nodeH := handler.NewNodeHandler(db)
 
@@ -86,6 +86,8 @@ func main() {
 			certs.GET("/status", certH.Status)
 			certs.GET("/detail", certH.Get)
 			certs.GET("/download", certH.Download)
+			certs.POST("/deploy", deployH.Deploy)
+			certs.GET("/deploy-logs", deployH.DeployLogs)
 		}
 
 		users := api.Group("/users")
@@ -111,6 +113,7 @@ func main() {
 			nodes.POST("", nodeH.Create)
 			nodes.PUT("", nodeH.Update)
 			nodes.DELETE("", nodeH.Delete)
+			nodes.GET("/test", nodeH.Test)
 		}
 
 		api.GET("/platform", authMw, deployH.Platform)

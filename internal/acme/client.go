@@ -7,6 +7,7 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -34,6 +35,8 @@ func (u *user) GetRegistration() *registration.Resource { return nil }
 func (u *user) GetPrivateKey() crypto.PrivateKey        { return u.privateKey }
 
 func NewClient(email, directory, certDir string) (*Client, error) {
+	os.Setenv("LEGO_EXPERIMENTAL_DNS_TCP_ONLY", "true")
+
 	privateKey, _ := rsa.GenerateKey(rand.Reader, 2048)
 	config := lego.NewConfig(&user{email: email, privateKey: privateKey})
 	config.CADirURL = directory
@@ -55,7 +58,7 @@ func NewClient(email, directory, certDir string) (*Client, error) {
 func (c *Client) SetDNSProvider(nameservers []string) {
 	c.legoClient.Challenge.SetDNS01Provider(
 		ManualDNS,
-		dns01.AddDNSTimeout(10*time.Minute),
+		dns01.AddDNSTimeout(3*time.Minute),
 		dns01.AddRecursiveNameservers(nameservers),
 	)
 }

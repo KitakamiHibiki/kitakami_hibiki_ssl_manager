@@ -25,11 +25,11 @@
       <div style="margin-top:20px">
         <h4>下载证书文件</h4>
         <div style="display:flex;gap:12px;margin-top:12px">
-          <el-button type="primary" @click="downloadFile('fullchain')" :loading="downloading === 'fullchain'">
-            下载 fullchain.pem
+          <el-button type="primary" @click="downloadFile('fullchain','pem')" :loading="downloading === 'fullchain'">
+            下载证书 (.pem)
           </el-button>
-          <el-button type="primary" @click="downloadFile('privkey')" :loading="downloading === 'privkey'">
-            下载 privkey.pem
+          <el-button type="primary" @click="downloadFile('privkey','key')" :loading="downloading === 'privkey'">
+            下载私钥 (.key)
           </el-button>
         </div>
         <p style="color:#e6a23c;font-size:13px;margin-top:12px">
@@ -74,7 +74,7 @@ function formatTime(t: string) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
-async function downloadFile(type: string) {
+async function downloadFile(type: string, ext: string) {
   downloading.value = type
   try {
     const resp = await api.get("/certs/download", {
@@ -84,7 +84,7 @@ async function downloadFile(type: string) {
     const url = URL.createObjectURL(new Blob([resp.data]))
     const a = document.createElement("a")
     a.href = url
-    a.download = `${domain.value}.${type}.pem`
+    a.download = `${domain.value}.${ext}`
     a.click()
     URL.revokeObjectURL(url)
     ElMessage.success("下载成功")

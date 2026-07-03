@@ -14,6 +14,7 @@ import (
 
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/acme"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/config"
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/deploy"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
@@ -68,9 +69,19 @@ func (h *CertHandler) Apply(c *gin.Context) {
 		return
 	}
 
+	certRecord := &store.Certificate{
+		DomainID: d.ID,
+		Status:   "verifying",
+	}
+	if err := h.db.CreateCertificate(certRecord); err != nil {
+		response.Error(c, 500, err.Error())
+		return
+	}
+
 	app := &acme.Application{
 		Domain:   d.Domain,
 		DomainID: d.ID,
+		CertID:   certRecord.ID,
 		Status:   "verifying",
 	}
 	acme.SetApplication(d.Domain, app)
@@ -81,6 +92,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 			log.Printf("[acme] new client error: %v", err)
 			app.Status = "error"
 			app.ErrorMsg = acme.CleanError(err)
+			h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "error", ErrorMsg: acme.CleanError(err)})
 			return
 		}
 
@@ -91,9 +103,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 			log.Printf("[acme] obtain error for %s: %v", d.Domain, err)
 			app.Status = "error"
 			app.ErrorMsg = acme.CleanError(err)
-			if app.CertID > 0 {
-				h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "error", ErrorMsg: acme.CleanError(err)})
-			}
+			h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "error", ErrorMsg: acme.CleanError(err)})
 			return
 		}
 
@@ -105,27 +115,23 @@ func (h *CertHandler) Apply(c *gin.Context) {
 		os.WriteFile(certPath+"/fullchain.pem", certPEM, 0644)
 		os.WriteFile(certPath+"/privkey.pem", result.PrivateKey, 0600)
 
-		if app.CertID > 0 {
-			certRecord := &store.Certificate{ID: app.CertID}
-			certRecord.Status = "issued"
-			certRecord.IssuedAt = time.Now()
-			certRecord.ExpiresAt = expiry
-			h.db.UpdateCertificate(certRecord)
-		} else {
-			certRecord := &store.Certificate{
-				DomainID:  d.ID,
-				Status:    "issued",
-				IssuedAt:  time.Now(),
-				ExpiresAt: expiry,
-			}
-			h.db.CreateCertificate(certRecord)
-			app.CertID = certRecord.ID
-		}
+		certRecord := &store.Certificate{ID: app.CertID}
+		certRecord.Status = "issued"
+		certRecord.IssuedAt = time.Now()
+		certRecord.ExpiresAt = expiry
+		h.db.UpdateCertificate(certRecord)
 		app.Status = "issued"
 		app.ExpiresAt = expiry
+
+		// auto-deploy
+		d2, _ := h.db.GetDomain(d.ID)
+		if d2 != nil && d2.DeployEnabled && d2.DeployNodeID > 0 {
+			deployer := deploy.NewDeployer(h.db, h.certDir)
+			go deployer.DeployCert(app.CertID)
+		}
 	}()
 
-	response.OK(c, gin.H{"domain": d.Domain, "status": "verifying"})
+	response.OK(c, gin.H{"domain": d.Domain, "cert_id": certRecord.ID, "status": "verifying"})
 }
 
 func (h *CertHandler) VerifyDNS(c *gin.Context) {
@@ -152,18 +158,27 @@ func (h *CertHandler) VerifyDNS(c *gin.Context) {
 		return
 	}
 
-	certRecord := &store.Certificate{
-		DomainID: app.DomainID,
-		Status:   "issuing",
-	}
-	if err := h.db.CreateCertificate(certRecord); err != nil {
-		response.Error(c, 500, err.Error())
-		return
-	}
+		expected := acme.ManualDNS.GetKeyAuth(req.Domain)
+		if expected == "" {
+			response.Error(c, 400, "no pending challenge for this domain")
+			return
+		}
+		matched := false
+		for _, n := range names {
+			if strings.Contains(n, expected) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			response.Error(c, 400, "DNS TXT 记录值不匹配，请确认已更新为最新挑战值")
+			return
+		}
+
+	h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "issuing"})
 
 	app.Status = "issuing"
-	app.CertID = certRecord.ID
-	response.OK(c, gin.H{"status": "issuing", "cert_id": certRecord.ID})
+	response.OK(c, gin.H{"status": "issuing", "cert_id": app.CertID})
 }
 
 func (h *CertHandler) Status(c *gin.Context) {
@@ -192,7 +207,17 @@ func (h *CertHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	certs, total, err := h.db.ListCertificatesByUser(userID, offset, pageSize)
+	domainID, _ := strconv.ParseUint(c.Query("domain_id"), 10, 64)
+
+	var certs []store.Certificate
+	var total int64
+	var err error
+
+	if domainID > 0 {
+		certs, total, err = h.db.ListCertificatesByDomainAndUser(uint(domainID), userID, offset, pageSize)
+	} else {
+		certs, total, err = h.db.ListCertificatesByUser(userID, offset, pageSize)
+	}
 	if err != nil {
 		response.Error(c, 500, err.Error())
 		return
