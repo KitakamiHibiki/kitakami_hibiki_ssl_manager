@@ -11,13 +11,9 @@
           <el-icon><Link /></el-icon>
           <span>域名管理</span>
         </el-menu-item>
-        <el-menu-item index="/certificates">
-          <el-icon><Document /></el-icon>
-          <span>证书管理</span>
-        </el-menu-item>
         <el-menu-item index="/deploy">
           <el-icon><Upload /></el-icon>
-          <span>部署管理</span>
+          <span>部署节点</span>
         </el-menu-item>
         <el-menu-item v-if="isAdmin" index="/users">
           <el-icon><User /></el-icon>
@@ -43,7 +39,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Monitor, Link, Document, Upload, User } from '@element-plus/icons-vue'
+import { Monitor, Link, Upload, User } from '@element-plus/icons-vue'
 import { useAuth } from './stores/auth'
 
 const router = useRouter()

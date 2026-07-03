@@ -1,13 +1,13 @@
 package handler
 
 import (
-	"net/http"
 	"strings"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/crypto/bcrypt"
 
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/auth"
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
 
@@ -26,13 +26,13 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.Email == "" || req.Password == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "email and password required"})
+		response.Error(c, 400, "email and password required")
 		return
 	}
 
 	hashed, err := bcrypt.GenerateFromPassword([]byte(req.Password), bcrypt.DefaultCost)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "hash failed"})
+		response.Error(c, 500, "hash failed")
 		return
 	}
 
@@ -44,20 +44,21 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		Role:     "user",
 	}
 	if err := h.db.CreateUser(user); err != nil {
-		c.JSON(http.StatusConflict, gin.H{"error": "email already registered"})
+		response.Error(c, 409, "email already registered")
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, h.secret)
+	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, user.Email, h.secret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+		response.Error(c, 500, "token generation failed")
 		return
 	}
 
-	c.JSON(http.StatusCreated, gin.H{
+	response.OK(c, gin.H{
 		"token":    token,
 		"username": user.Username,
 		"role":     user.Role,
+		"email":    user.Email,
 	})
 }
 
@@ -67,39 +68,42 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		Password string `json:"password"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		response.Error(c, 400, "invalid request")
 		return
 	}
 
 	user, err := h.db.FindUserByEmail(req.Email)
 	if err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		response.Error(c, 401, "invalid credentials")
 		return
 	}
 
 	if err := bcrypt.CompareHashAndPassword([]byte(user.Password), []byte(req.Password)); err != nil {
-		c.JSON(http.StatusUnauthorized, gin.H{"error": "invalid credentials"})
+		response.Error(c, 401, "invalid credentials")
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, h.secret)
+	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, user.Email, h.secret)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "token generation failed"})
+		response.Error(c, 500, "token generation failed")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
+	response.OK(c, gin.H{
 		"token":    token,
 		"username": user.Username,
 		"role":     user.Role,
+		"email":    user.Email,
 	})
 }
 
 func (h *AuthHandler) Me(c *gin.Context) {
 	username := c.GetString("username")
 	role := c.GetString("role")
-	c.JSON(http.StatusOK, gin.H{
+	email := c.GetString("email")
+	response.OK(c, gin.H{
 		"username": username,
 		"role":     role,
+		"email":    email,
 	})
 }

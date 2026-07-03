@@ -9,13 +9,10 @@ import (
 
 	"github.com/gin-gonic/gin"
 
-	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/acme"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/config"
-	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/deploy"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/handler"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/middleware"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/platform"
-	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/scheduler"
 
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
@@ -38,45 +35,24 @@ func main() {
 	if err != nil {
 		log.Fatalf("init db: %v", err)
 	}
-	// Phase 2: run migrations, seed data, then load runtime config from DB
 	if err := db.AfterInit(); err != nil {
 		log.Fatalf("db init: %v", err)
 	}
-	sysCfg, err := db.GetSystemConfig()
-	if err != nil {
-		log.Fatalf("load system config from db: %v", err)
-	}
-	cfg.ApplySystemConfig(sysCfg)
-	log.Printf("[config] ACME directory: %s", cfg.ACME.Directory)
 
 	certDir := "./certs"
 	if err := os.MkdirAll(certDir, 0755); err != nil {
 		log.Fatalf("create cert dir: %v", err)
 	}
 
-	httpProvider := acme.NewHTTPProvider()
 	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret)
 	domainH := handler.NewDomainHandler(db)
-	certH := handler.NewCertHandler(db, cfg, certDir, httpProvider)
+	certH := handler.NewCertHandler(db, cfg, certDir)
 	userH := handler.NewUserHandler(db)
-	nginxD := deploy.NewNginxDeployer(plat)
-	localD := deploy.NewLocalDeployer(certDir)
-	deployH := handler.NewDeployHandler(db, nginxD, localD, certDir)
+	deployH := handler.NewDeployHandler()
 	sysCfgH := handler.NewSystemConfigHandler(db)
-
-	sched := scheduler.New(cfg, db)
-	if err := sched.Start(func(domain, email, certDir string) error {
-		return nil
-	}); err != nil {
-		log.Printf("[scheduler] start error: %v", err)
-	}
-	defer sched.Stop()
+	nodeH := handler.NewNodeHandler(db)
 
 	r := gin.Default()
-
-	r.GET("/.well-known/acme-challenge/*token", func(c *gin.Context) {
-		httpProvider.ServeHTTP(c.Writer, c.Request)
-	})
 
 	authMw := middleware.AuthRequired(cfg.Auth.JWTSecret)
 	adminMw := middleware.AdminRequired()
@@ -93,22 +69,20 @@ func main() {
 			domains.GET("", domainH.List)
 			domains.POST("", domainH.Create)
 			domains.DELETE("", domainH.Delete)
+			domains.PUT("", domainH.Update)
+			domains.GET("/detail", domainH.Get)
 		}
 
 		certs := api.Group("/certs")
 		certs.Use(authMw)
 		{
-			certs.POST("/apply", certH.Apply)
-			certs.POST("/renew", certH.Renew)
 			certs.GET("", certH.List)
+			certs.POST("/apply", certH.Apply)
+			certs.POST("/verify-dns", certH.VerifyDNS)
+			certs.GET("/challenge-value", certH.ChallengeValue)
+			certs.GET("/status", certH.Status)
 			certs.GET("/detail", certH.Get)
 			certs.GET("/download", certH.Download)
-		}
-
-		deploy := api.Group("/deploy")
-		deploy.Use(authMw)
-		{
-			deploy.POST("", deployH.Deploy)
 		}
 
 		users := api.Group("/users")
@@ -119,13 +93,21 @@ func main() {
 			users.DELETE("", userH.Delete)
 		}
 
-		// System config (admin only)
 		system := api.Group("/system")
 		system.Use(authMw, adminMw)
 		{
 			system.GET("/config", sysCfgH.Get)
 			system.PUT("/config", sysCfgH.Update)
 			system.GET("/migrations", sysCfgH.Migrations)
+		}
+
+		nodes := api.Group("/nodes")
+		nodes.Use(authMw)
+		{
+			nodes.GET("", nodeH.List)
+			nodes.POST("", nodeH.Create)
+			nodes.PUT("", nodeH.Update)
+			nodes.DELETE("", nodeH.Delete)
 		}
 
 		api.GET("/platform", authMw, deployH.Platform)

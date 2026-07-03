@@ -43,6 +43,27 @@ func allMigrations() []Migration {
 				return nil
 			},
 		},
+		{
+			Version:     "2026-07-02-001",
+			Description: "Rebuild unique indexes as partial (WHERE deleted_at IS NULL) for soft delete",
+			Up: func(tx *gorm.DB) error {
+				// Drop old full unique indexes
+				if err := tx.Migrator().DropIndex(&Domain{}, "idx_domains_domain"); err != nil {
+					// Index might not exist, ignore
+				}
+				if err := tx.Migrator().DropIndex(&User{}, "idx_users_email"); err != nil {
+					// Index might not exist, ignore
+				}
+				// Create new partial unique indexes
+				if err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_active ON domains(domain) WHERE deleted_at IS NULL").Error; err != nil {
+					return err
+				}
+				if err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_email_active ON users(email) WHERE deleted_at IS NULL").Error; err != nil {
+					return err
+				}
+				return nil
+			},
+		},
 	}
 }
 

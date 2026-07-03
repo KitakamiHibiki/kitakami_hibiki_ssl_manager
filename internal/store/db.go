@@ -3,25 +3,30 @@ package store
 import (
 	"time"
 
-	"gorm.io/driver/sqlite"
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
 )
 
 type Domain struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	UserID    uint      `gorm:"index;not null" json:"user_id"`
-	Domain    string    `gorm:"uniqueIndex;not null" json:"domain"`
+	Domain    string    `gorm:"uniqueIndex:idx_domain_active,where:deleted_at IS NULL;not null" json:"domain"`
 	Email     string    `gorm:"not null" json:"email"`
-	Challenge string    `gorm:"default:http" json:"challenge"` // http | dns
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	Challenge string    `gorm:"default:dns" json:"challenge"` // dns only
+	DeployEnabled bool   `gorm:"default:false" json:"deploy_enabled"`
+	DeployNodeID  uint   `gorm:"default:0" json:"deploy_node_id"`
+	DeployPath    string `gorm:"default:''" json:"deploy_path"`
+	CreatedAt time.Time  `json:"created_at"`
+	UpdatedAt time.Time  `json:"updated_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
 
 type Certificate struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	DomainID  uint      `gorm:"index;not null" json:"domain_id"`
 	Domain    string    `gorm:"-" json:"domain"`
-	Status    string    `gorm:"default:pending" json:"status"` // pending | issued | expired | error
+	Status    string    `gorm:"default:pending" json:"status"`
+	ErrorMsg  string    `gorm:"default:''" json:"error_msg"`
 	IssuedAt  time.Time `json:"issued_at"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CreatedAt time.Time `json:"created_at"`
@@ -36,7 +41,7 @@ func InitDB(dsn string) (*DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	if err := db.AutoMigrate(&Domain{}, &Certificate{}, &User{}, &SystemConfig{}); err != nil {
+	if err := db.AutoMigrate(&Domain{}, &Certificate{}, &User{}, &SystemConfig{}, &DeployNode{}); err != nil {
 		return nil, err
 	}
 	return &DB{db}, nil

@@ -1,11 +1,11 @@
 package handler
 
 import (
-	"net/http"
 	"strconv"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
 
@@ -29,36 +29,33 @@ func (h *DomainHandler) List(c *gin.Context) {
 		domains, err = h.db.ListDomainsByUser(userID)
 	}
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Error(c, 500, err.Error())
 		return
 	}
 	if domains == nil {
 		domains = []store.Domain{}
 	}
-	c.JSON(http.StatusOK, domains)
+	response.OK(c, domains)
 }
 
 func (h *DomainHandler) Create(c *gin.Context) {
 	var d store.Domain
 	if err := c.ShouldBindJSON(&d); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		response.Error(c, 400, err.Error())
 		return
 	}
 	d.UserID = c.GetUint("user_id")
-	if d.Challenge == "" {
-		d.Challenge = "http"
-	}
 	if err := h.db.CreateDomain(&d); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Error(c, 500, err.Error())
 		return
 	}
-	c.JSON(http.StatusCreated, d)
+	response.OK(c, d)
 }
 
 func (h *DomainHandler) Delete(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
 	if err != nil || id == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		response.Error(c, 400, "invalid id")
 		return
 	}
 
@@ -66,14 +63,76 @@ func (h *DomainHandler) Delete(c *gin.Context) {
 	role := c.GetString("role")
 	if role != "admin" {
 		if _, err := h.db.GetDomainByIDAndUser(uint(id), userID); err != nil {
-			c.JSON(http.StatusForbidden, gin.H{"error": "not your domain"})
+			response.Error(c, 403, "not your domain")
 			return
 		}
 	}
 
 	if err := h.db.DeleteDomain(uint(id)); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Error(c, 500, err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+	response.OK(c, gin.H{"message": "deleted"})
+}
+
+func (h *DomainHandler) Get(c *gin.Context) {
+	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
+	if err != nil || id == 0 {
+		response.Error(c, 400, "invalid id")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	var domain *store.Domain
+	if role == "admin" {
+		domain, err = h.db.GetDomain(uint(id))
+	} else {
+		domain, err = h.db.GetDomainByIDAndUser(uint(id), userID)
+	}
+	if err != nil {
+		response.Error(c, 404, "domain not found")
+		return
+	}
+
+	response.OK(c, gin.H{"domain": domain})
+}
+
+func (h *DomainHandler) Update(c *gin.Context) {
+	var req struct {
+		ID            uint   `json:"id"`
+		DeployEnabled bool   `json:"deploy_enabled"`
+		DeployNodeID  uint   `json:"deploy_node_id"`
+		DeployPath    string `json:"deploy_path"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
+		response.Error(c, 400, "invalid request")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	var domain *store.Domain
+	var err error
+	if role == "admin" {
+		domain, err = h.db.GetDomain(req.ID)
+	} else {
+		domain, err = h.db.GetDomainByIDAndUser(req.ID, userID)
+	}
+	if err != nil {
+		response.Error(c, 404, "domain not found")
+		return
+	}
+
+	domain.DeployEnabled = req.DeployEnabled
+	domain.DeployNodeID = req.DeployNodeID
+	domain.DeployPath = req.DeployPath
+	if err := h.db.UpdateDomain(domain); err != nil {
+		response.Error(c, 500, err.Error())
+		return
+	}
+
+	response.OK(c, domain)
 }

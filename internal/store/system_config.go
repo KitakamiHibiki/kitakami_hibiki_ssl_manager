@@ -5,14 +5,9 @@ import "time"
 // SystemConfig holds runtime configuration persisted in the database.
 // Only bootstrap config (server.port, storage.driver, storage.dsn) stays in config.yaml.
 type SystemConfig struct {
-	ID              uint      `gorm:"primaryKey" json:"id"`
-	ACMEDirectory   string    `gorm:"default:https://acme-v02.api.letsencrypt.org/directory" json:"acme_directory"`
-	CheckInterval   string    `gorm:"default:0 3 * * *" json:"check_interval"`
-	RenewBeforeDays int       `gorm:"default:30" json:"renew_before_days"`
-	NotifyEmail     string    `gorm:"default:''" json:"notify_email"`
-	NotifyWebhook   string    `gorm:"default:''" json:"notify_webhook"`
-	JWTSecret       string    `gorm:"default:change-me-in-production" json:"jwt_secret"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID        uint      `gorm:"primaryKey" json:"id"`
+	JWTSecret string    `gorm:"default:change-me-in-production" json:"jwt_secret"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 func (db *DB) GetSystemConfig() (*SystemConfig, error) {

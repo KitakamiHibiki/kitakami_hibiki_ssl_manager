@@ -1,10 +1,9 @@
 package handler
 
 import (
-	"net/http"
-
 	"github.com/gin-gonic/gin"
 
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
 
@@ -19,71 +18,50 @@ func NewSystemConfigHandler(db *store.DB) *SystemConfigHandler {
 func (h *SystemConfigHandler) Get(c *gin.Context) {
 	cfg, err := h.db.GetSystemConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load system config"})
+		response.Error(c, 500, "failed to load system config")
 		return
 	}
-	c.JSON(http.StatusOK, cfg)
+	response.OK(c, cfg)
 }
 
 func (h *SystemConfigHandler) Update(c *gin.Context) {
 	cfg, err := h.db.GetSystemConfig()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to load system config"})
+		response.Error(c, 500, "failed to load system config")
 		return
 	}
 
 	var req struct {
-		ACMEDirectory   *string `json:"acme_directory"`
-		CheckInterval   *string `json:"check_interval"`
-		RenewBeforeDays *int    `json:"renew_before_days"`
-		NotifyEmail     *string `json:"notify_email"`
-		NotifyWebhook   *string `json:"notify_webhook"`
-		JWTSecret       *string `json:"jwt_secret"`
+		JWTSecret *string `json:"jwt_secret"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid request"})
+		response.Error(c, 400, "invalid request")
 		return
 	}
 
-	if req.ACMEDirectory != nil {
-		cfg.ACMEDirectory = *req.ACMEDirectory
-	}
-	if req.CheckInterval != nil {
-		cfg.CheckInterval = *req.CheckInterval
-	}
-	if req.RenewBeforeDays != nil {
-		cfg.RenewBeforeDays = *req.RenewBeforeDays
-	}
-	if req.NotifyEmail != nil {
-		cfg.NotifyEmail = *req.NotifyEmail
-	}
-	if req.NotifyWebhook != nil {
-		cfg.NotifyWebhook = *req.NotifyWebhook
-	}
 	if req.JWTSecret != nil {
 		cfg.JWTSecret = *req.JWTSecret
 	}
 
-	// Warning if JWT secret changes — tokens signed with the old secret will be invalidated on restart.
 	if err := h.db.UpdateSystemConfig(cfg); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to update system config"})
+		response.Error(c, 500, "failed to update system config")
 		return
 	}
 
-	c.JSON(http.StatusOK, gin.H{
-		"message":  "system config updated (some changes require restart)",
-		"config":   cfg,
+	response.OK(c, gin.H{
+		"message": "system config updated (some changes require restart)",
+		"config":  cfg,
 	})
 }
 
 func (h *SystemConfigHandler) Migrations(c *gin.Context) {
 	list, err := h.db.AppliedMigrations()
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": "failed to list migrations"})
+		response.Error(c, 500, "failed to list migrations")
 		return
 	}
 	if list == nil {
 		list = []store.SchemaMigration{}
 	}
-	c.JSON(http.StatusOK, list)
+	response.OK(c, list)
 }

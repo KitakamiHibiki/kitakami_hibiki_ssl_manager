@@ -2,8 +2,9 @@ package handler
 
 import (
 	"log"
-	"net/http"
+	"net"
 	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -11,211 +12,234 @@ import (
 
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/acme"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/config"
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
 
 type CertHandler struct {
-	db       *store.DB
-	cfg      *config.Config
-	certDir  string
-	provider *acme.HTTPProvider
+	db      *store.DB
+	cfg     *config.Config
+	certDir string
 }
 
-func NewCertHandler(db *store.DB, cfg *config.Config, certDir string, provider *acme.HTTPProvider) *CertHandler {
-	return &CertHandler{db: db, cfg: cfg, certDir: certDir, provider: provider}
+func NewCertHandler(db *store.DB, cfg *config.Config, certDir string) *CertHandler {
+	return &CertHandler{db: db, cfg: cfg, certDir: certDir}
 }
 
 func (h *CertHandler) Apply(c *gin.Context) {
 	var req struct {
-		DomainID uint   `json:"domain_id"`
-		Domain   string `json:"domain"`
-		Email    string `json:"email"`
+		DomainID uint `json:"domain_id"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
-		return
-	}
-
-	if req.DomainID == 0 && req.Domain == "" {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "domain_id or domain is required"})
+	if err := c.ShouldBindJSON(&req); err != nil || req.DomainID == 0 {
+		response.Error(c, 400, "domain_id is required")
 		return
 	}
 
 	userID := c.GetUint("user_id")
-	domain := req.Domain
-	email := req.Email
-	var domainID uint
+	d, err := h.db.GetDomain(req.DomainID)
+	if err != nil {
+		response.Error(c, 404, "domain not found")
+		return
+	}
+	if d.UserID != userID {
+		response.Error(c, 403, "not your domain")
+		return
+	}
 
-	if req.DomainID > 0 {
-		d, err := h.db.GetDomain(req.DomainID)
+	app := &acme.Application{
+		Domain:   d.Domain,
+		DomainID: d.ID,
+		Status:   "verifying",
+	}
+	acme.SetApplication(d.Domain, app)
+
+	go func() {
+		client, err := acme.NewClient(d.Email, h.cfg.ACME.Directory, h.certDir)
 		if err != nil {
-			c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
+			log.Printf("[acme] new client error: %v", err)
+			app.Status = "error"
+			app.ErrorMsg = acme.CleanError(err)
 			return
 		}
-		if d.UserID != userID {
-			c.JSON(http.StatusForbidden, gin.H{"error": "not your domain"})
+
+		client.SetDNSProvider()
+
+		result, err := client.Obtain(d.Domain)
+		if err != nil {
+			log.Printf("[acme] obtain error for %s: %v", d.Domain, err)
+			app.Status = "error"
+			app.ErrorMsg = acme.CleanError(err)
+			if app.CertID > 0 {
+				h.db.Delete(&store.Certificate{ID: app.CertID})
+			}
 			return
 		}
-		domain = d.Domain
-		email = d.Email
-		domainID = d.ID
-	} else {
-		if email == "" {
-			email = "admin@" + domain
+
+		certPEM := []byte(result.Certificate)
+		expiry, _ := acme.ParseExpiry(certPEM)
+
+		certPath := h.certDir + "/" + d.Domain
+		os.MkdirAll(certPath, 0755)
+		os.WriteFile(certPath+"/fullchain.pem", certPEM, 0644)
+		os.WriteFile(certPath+"/privkey.pem", result.PrivateKey, 0600)
+
+		if app.CertID > 0 {
+			certRecord := &store.Certificate{ID: app.CertID}
+			certRecord.Status = "issued"
+			certRecord.IssuedAt = time.Now()
+			certRecord.ExpiresAt = expiry
+			h.db.UpdateCertificate(certRecord)
+		} else {
+			certRecord := &store.Certificate{
+				DomainID:  d.ID,
+				Status:    "issued",
+				IssuedAt:  time.Now(),
+				ExpiresAt: expiry,
+			}
+			h.db.CreateCertificate(certRecord)
+			app.CertID = certRecord.ID
 		}
-		d := &store.Domain{Domain: domain, Email: email, Challenge: "http", UserID: userID}
-		if err := h.db.CreateDomain(d); err != nil {
-			c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
-			return
-		}
-		domainID = d.ID
+		app.Status = "issued"
+		app.ExpiresAt = expiry
+	}()
+
+	response.OK(c, gin.H{"domain": d.Domain, "status": "verifying"})
+}
+
+func (h *CertHandler) VerifyDNS(c *gin.Context) {
+	var req struct {
+		Domain string `json:"domain"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Domain == "" {
+		response.Error(c, 400, "domain is required")
+		return
+	}
+
+	app := acme.GetApplication(req.Domain)
+	if app == nil {
+		response.Error(c, 404, "no pending application")
+		return
+	}
+
+	names, err := net.LookupTXT("_acme-challenge." + req.Domain)
+	if err != nil || len(names) == 0 {
+		response.Error(c, 400, "DNS TXT 记录未找到，请确认已添加")
+		return
 	}
 
 	certRecord := &store.Certificate{
-		DomainID: domainID,
-		Status:   "pending",
+		DomainID: app.DomainID,
+		Status:   "issuing",
 	}
 	if err := h.db.CreateCertificate(certRecord); err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Error(c, 500, err.Error())
 		return
 	}
 
-	go func() {
-		client, err := acme.NewClient(email, h.cfg.ACME.Directory, h.certDir)
-		if err != nil {
-			log.Printf("[acme] new client error: %v", err)
-			certRecord.Status = "error"
-			h.db.UpdateCertificate(certRecord)
-			return
-		}
-
-		if err := client.SetHTTPProvider(h.provider); err != nil {
-			log.Printf("[acme] set http provider error: %v", err)
-			certRecord.Status = "error"
-			h.db.UpdateCertificate(certRecord)
-			return
-		}
-
-		result, err := client.Obtain(domain)
-		if err != nil {
-			log.Printf("[acme] obtain error for %s: %v", domain, err)
-			certRecord.Status = "error"
-			h.db.UpdateCertificate(certRecord)
-			return
-		}
-
-		certPEM := []byte(result.Certificate)
-		expiry, _ := acme.ParseExpiry(certPEM)
-
-		certRecord.Status = "issued"
-		certRecord.IssuedAt = time.Now()
-		certRecord.ExpiresAt = expiry
-		h.db.UpdateCertificate(certRecord)
-	}()
-
-	c.JSON(http.StatusAccepted, certRecord)
+	app.Status = "issuing"
+	app.CertID = certRecord.ID
+	response.OK(c, gin.H{"status": "issuing", "cert_id": certRecord.ID})
 }
 
-func (h *CertHandler) Renew(c *gin.Context) {
-	var req struct {
-		CertificateID uint `json:"certificate_id"`
-	}
-	if err := c.ShouldBindJSON(&req); err != nil {
-		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+func (h *CertHandler) Status(c *gin.Context) {
+	domain := c.Query("domain")
+	if domain == "" {
+		response.Error(c, 400, "domain is required")
 		return
 	}
-
-	userID := c.GetUint("user_id")
-	cert, err := h.db.GetCertificateByIDAndUser(req.CertificateID, userID)
-	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
+	app := acme.GetApplication(domain)
+	if app == nil {
+		response.Error(c, 404, "no pending application")
 		return
 	}
-
-	domain, err := h.db.GetDomain(cert.DomainID)
-	if err != nil {
-		c.JSON(http.StatusNotFound, gin.H{"error": "domain not found"})
-		return
-	}
-
-	go func() {
-		client, err := acme.NewClient(domain.Email, h.cfg.ACME.Directory, h.certDir)
-		if err != nil {
-			log.Printf("[acme] new client error: %v", err)
-			return
-		}
-		if err := client.SetHTTPProvider(h.provider); err != nil {
-			log.Printf("[acme] set http provider error: %v", err)
-			return
-		}
-		result, err := client.Renew(cert.Domain)
-		if err != nil {
-			log.Printf("[acme] renew error for %s: %v", cert.Domain, err)
-			return
-		}
-		certPEM := []byte(result.Certificate)
-		expiry, _ := acme.ParseExpiry(certPEM)
-		cert.Status = "issued"
-		cert.IssuedAt = time.Now()
-		cert.ExpiresAt = expiry
-		h.db.UpdateCertificate(cert)
-	}()
-	c.JSON(http.StatusAccepted, gin.H{"message": "renew started"})
+	response.OK(c, app)
 }
 
 func (h *CertHandler) List(c *gin.Context) {
 	userID := c.GetUint("user_id")
-	role := c.GetString("role")
-
-	var certs []store.Certificate
-	var err error
-	if role == "admin" {
-		certs, err = h.db.ListCertificates()
-	} else {
-		certs, err = h.db.ListCertificatesByUser(userID)
+	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
+	pageSize, _ := strconv.Atoi(c.DefaultQuery("page_size", "10"))
+	if page < 1 {
+		page = 1
 	}
+	if pageSize < 1 || pageSize > 100 {
+		pageSize = 10
+	}
+	offset := (page - 1) * pageSize
+
+	certs, total, err := h.db.ListCertificatesByUser(userID, offset, pageSize)
 	if err != nil {
-		c.JSON(http.StatusInternalServerError, gin.H{"error": err.Error()})
+		response.Error(c, 500, err.Error())
 		return
 	}
 	if certs == nil {
 		certs = []store.Certificate{}
 	}
-	c.JSON(http.StatusOK, certs)
+	response.OK(c, gin.H{
+		"list":      certs,
+		"total":     total,
+		"page":      page,
+		"page_size": pageSize,
+	})
+}
+
+func (h *CertHandler) ChallengeValue(c *gin.Context) {
+	domain := c.Query("domain")
+	if domain == "" {
+		response.Error(c, 400, "domain is required")
+		return
+	}
+	val := acme.ManualDNS.GetKeyAuth(domain)
+	if val == "" {
+		response.Error(c, 404, "no pending challenge for this domain")
+		return
+	}
+	response.OK(c, gin.H{"challenge_value": val})
 }
 
 func (h *CertHandler) Get(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
 	if err != nil || id == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		response.Error(c, 400, "invalid id")
 		return
 	}
 	userID := c.GetUint("user_id")
 	cert, err := h.db.GetCertificateByIDAndUser(uint(id), userID)
 	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
+		response.Error(c, 404, "not found")
 		return
 	}
-	c.JSON(http.StatusOK, cert)
+	response.OK(c, cert)
 }
 
 func (h *CertHandler) Download(c *gin.Context) {
 	id, err := strconv.ParseUint(c.Query("id"), 10, 64)
 	if err != nil || id == 0 {
-		c.JSON(http.StatusBadRequest, gin.H{"error": "invalid id"})
+		response.Error(c, 400, "invalid id")
 		return
 	}
-	userID := c.GetUint("user_id")
-	cert, err := h.db.GetCertificateByIDAndUser(uint(id), userID)
-	if err != nil {
-		c.JSON(http.StatusForbidden, gin.H{"error": "not your certificate"})
+	fileType := c.Query("type")
+	if fileType != "fullchain" && fileType != "privkey" {
+		response.Error(c, 400, "type must be fullchain or privkey")
 		return
 	}
 
-	certPath := h.certDir + "/" + cert.Domain + "/fullchain.pem"
-	if _, err := os.Stat(certPath); os.IsNotExist(err) {
-		c.JSON(http.StatusNotFound, gin.H{"error": "cert file not found"})
+	userID := c.GetUint("user_id")
+	cert, err := h.db.GetCertificateByIDAndUser(uint(id), userID)
+	if err != nil {
+		response.Error(c, 404, "not found")
 		return
 	}
-	c.File(certPath)
+	if cert.Status != "issued" {
+		response.Error(c, 400, "certificate not issued yet")
+		return
+	}
+
+	filePath := filepath.Join(h.certDir, cert.Domain, fileType+".pem")
+	if _, err := os.Stat(filePath); os.IsNotExist(err) {
+		response.Error(c, 404, "file not found")
+		return
+	}
+
+	c.FileAttachment(filePath, cert.Domain+"."+fileType+".pem")
 }

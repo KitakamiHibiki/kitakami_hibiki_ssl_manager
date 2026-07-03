@@ -26,9 +26,24 @@ const router = createRouter({
           component: () => import('../views/Domains.vue'),
         },
         {
-          path: 'certificates',
-          name: 'certificates',
-          component: () => import('../views/Certificates.vue'),
+          path: 'domains/add',
+          name: 'add-domain',
+          component: () => import('../views/AddDomain.vue'),
+        },
+        {
+          path: 'domains/detail',
+          name: 'domain-detail',
+          component: () => import('../views/DomainDetail.vue'),
+        },
+        {
+          path: 'domains/detail/cert-apply',
+          name: 'cert-apply',
+          component: () => import('../views/CertApply.vue'),
+        },
+        {
+          path: 'domains/detail/cert-download',
+          name: 'cert-download',
+          component: () => import('../views/CertDownload.vue'),
         },
         {
           path: 'deploy',

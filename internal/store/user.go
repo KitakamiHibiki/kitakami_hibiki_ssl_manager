@@ -1,14 +1,19 @@
 package store
 
-import "time"
+import (
+	"time"
+
+	"gorm.io/gorm"
+)
 
 type User struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
-	Email     string    `gorm:"uniqueIndex;not null" json:"email"`
+	Email     string    `gorm:"uniqueIndex:idx_email_active,where:deleted_at IS NULL;not null" json:"email"`
 	Username  string    `gorm:"not null" json:"username"`
 	Password  string    `gorm:"not null" json:"-"`
-	Role      string    `gorm:"default:user" json:"role"`
-	CreatedAt time.Time `json:"created_at"`
+	Role      string         `gorm:"default:user" json:"role"`
+	CreatedAt time.Time      `json:"created_at"`
+	DeletedAt gorm.DeletedAt `gorm:"index" json:"deleted_at"`
 }
 
 func (db *DB) CreateUser(u *User) error {
@@ -63,7 +68,7 @@ func (db *DB) SeedAdmin() {
 		db.Create(&User{
 			Email:    "admin@khssl.local",
 			Username: "admin",
-			Password: "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy", // admin123
+		Password: "$2a$10$KlbyfqMxDkB.XW.HoJBZw.pXQaHLVUdd25Ky7fgZSrV6KdTW7vehy", // admin123
 			Role:     "admin",
 		})
 	}

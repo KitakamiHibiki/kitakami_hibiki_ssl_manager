@@ -15,13 +15,23 @@ api.interceptors.request.use((config) => {
 })
 
 api.interceptors.response.use(
-  (res) => res,
-  (err) => {
-    if (err.response?.status === 401) {
-      const { logout } = useAuth()
-      logout()
-      window.location.href = '/login'
+  (res) => {
+    const body = res.data
+    if (body && body.code !== undefined && body.code !== 200) {
+      if (body.code === 401 && !window.location.pathname.includes("/login")) {
+        const { logout } = useAuth()
+        logout()
+        window.location.href = '/login'
+      }
+      const err: any = new Error(body.msg || "request failed")
+      err.response = res
+      err.code = body.code
+      return Promise.reject(err)
     }
+    res.data = body?.data !== undefined ? body.data : body
+    return res
+  },
+  (err) => {
     return Promise.reject(err)
   }
 )
@@ -31,16 +41,6 @@ export interface Domain {
   domain: string
   email: string
   challenge: string
-  created_at: string
-}
-
-export interface Certificate {
-  id: number
-  domain_id: number
-  domain: string
-  status: string
-  issued_at: string
-  expires_at: string
   created_at: string
 }
 
@@ -79,24 +79,45 @@ export function deleteDomain(id: number) {
 }
 
 // Certificates
-export function getCertificates() {
-  return api.get<Certificate[]>('/certs')
+export function applyCertificate(domain_id: number) {
+  return api.post('/certs/apply', { domain_id })
 }
 
 export function getCertificate(id: number) {
-  return api.get<Certificate>('/certs/detail', { params: { id } })
+  return api.get('/certs/detail', { params: { id } })
 }
 
-export function applyCertificate(data: { domain_id?: number; domain?: string; email?: string }) {
-  return api.post('/certs/apply', data)
+export function getCertStatus(domain: string) {
+  return api.get('/certs/status', { params: { domain } })
 }
 
-export function renewCertificate(certificate_id: number) {
-  return api.post('/certs/renew', { certificate_id })
+export function verifyDNS(domain: string) {
+  return api.post('/certs/verify-dns', { domain })
 }
 
-export function deployCertificate(certificate_id: number, target: string) {
-  return api.post('/deploy', { certificate_id, target })
+export function getChallengeValue(domain: string) {
+  return api.get('/certs/challenge-value', { params: { domain } })
+}
+
+export function getDomainDetail(id: number) {
+  return api.get('/domains/detail', { params: { id } })
+}
+
+export function updateDomain(id: number, data: any) {
+  return api.put('/domains', { id, ...data })
+}
+
+// Nodes
+export function getNodes() {
+  return api.get<any[]>('/nodes')
+}
+
+export function createNode(data: any) {
+  return api.post('/nodes', data)
+}
+
+export function deleteNode(id: number) {
+  return api.delete('/nodes', { params: { id } })
 }
 
 // Platform

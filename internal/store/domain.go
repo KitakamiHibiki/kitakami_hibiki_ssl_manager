@@ -34,6 +34,10 @@ func (db *DB) GetDomainByIDAndUser(id, userID uint) (*Domain, error) {
 	return &d, nil
 }
 
+func (db *DB) UpdateDomain(d *Domain) error {
+	return db.Save(d).Error
+}
+
 func (db *DB) DeleteDomain(id uint) error {
 	return db.Delete(&Domain{}, id).Error
 }
