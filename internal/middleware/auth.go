@@ -9,7 +9,7 @@ import (
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 )
 
-func AuthRequired(secret string) gin.HandlerFunc {
+func AuthRequired(secret, deployKey string) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		header := c.GetHeader("Authorization")
 		if header == "" || !strings.HasPrefix(header, "Bearer ") {
@@ -19,7 +19,7 @@ func AuthRequired(secret string) gin.HandlerFunc {
 		}
 
 		token := strings.TrimPrefix(header, "Bearer ")
-		claims, err := auth.ParseToken(token, secret)
+		claims, err := auth.ParseToken(token, secret, deployKey)
 		if err != nil {
 			response.Error(c, 401, "invalid token")
 			c.Abort()

@@ -12,12 +12,13 @@ import (
 )
 
 type AuthHandler struct {
-	db     *store.DB
-	secret string
+	db        *store.DB
+	secret    string
+	deployKey string
 }
 
-func NewAuthHandler(db *store.DB, secret string) *AuthHandler {
-	return &AuthHandler{db: db, secret: secret}
+func NewAuthHandler(db *store.DB, secret, deployKey string) *AuthHandler {
+	return &AuthHandler{db: db, secret: secret, deployKey: deployKey}
 }
 
 func (h *AuthHandler) Register(c *gin.Context) {
@@ -48,7 +49,7 @@ func (h *AuthHandler) Register(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, user.Email, h.secret)
+	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, user.Email, h.secret, h.deployKey)
 	if err != nil {
 		response.Error(c, 500, "token generation failed")
 		return
@@ -83,7 +84,7 @@ func (h *AuthHandler) Login(c *gin.Context) {
 		return
 	}
 
-	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, user.Email, h.secret)
+	token, err := auth.GenerateToken(user.ID, user.Username, user.Role, user.Email, h.secret, h.deployKey)
 	if err != nil {
 		response.Error(c, 500, "token generation failed")
 		return

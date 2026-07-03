@@ -1,6 +1,10 @@
-﻿server:
-  port: 8080
-
+server:
+    port: 8080
+acme:
+    directory: https://acme-v02.api.letsencrypt.org/directory
 storage:
-  driver: sqlite
-  dsn: ./data/certs.db
+    driver: sqlite
+    dsn: ./data/certs.db
+auth:
+    jwt_secret: ""
+    deploy_key: 905f2832acab29b8d09dcef08c7decf5

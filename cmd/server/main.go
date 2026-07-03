@@ -38,13 +38,16 @@ func main() {
 	if err := db.AfterInit(); err != nil {
 		log.Fatalf("db init: %v", err)
 	}
+	if err := db.MarkIncompleteCertificatesAsError(); err != nil {
+		log.Printf("[startup] mark incomplete certs: %v", err)
+	}
 
 	certDir := "./certs"
 	if err := os.MkdirAll(certDir, 0755); err != nil {
 		log.Fatalf("create cert dir: %v", err)
 	}
 
-	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret)
+	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret, cfg.Auth.DeployKey)
 	domainH := handler.NewDomainHandler(db)
 	certH := handler.NewCertHandler(db, cfg, certDir)
 	userH := handler.NewUserHandler(db)
@@ -54,7 +57,7 @@ func main() {
 
 	r := gin.Default()
 
-	authMw := middleware.AuthRequired(cfg.Auth.JWTSecret)
+	authMw := middleware.AuthRequired(cfg.Auth.JWTSecret, cfg.Auth.DeployKey)
 	adminMw := middleware.AdminRequired()
 
 	api := r.Group("/api")

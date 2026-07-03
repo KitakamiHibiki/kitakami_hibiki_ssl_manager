@@ -76,3 +76,12 @@ func (db *DB) GetExpiringCertificates(before time.Time) ([]Certificate, error) {
 	}
 	return certs, nil
 }
+
+func (db *DB) MarkIncompleteCertificatesAsError() error {
+	return db.Model(&Certificate{}).
+		Where("status NOT IN ?", []string{"issued", "error"}).
+		Updates(map[string]interface{}{
+			"status":    "error",
+			"error_msg": "由于后端服务终止",
+		}).Error
+}

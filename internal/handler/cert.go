@@ -1,11 +1,13 @@
 package handler
 
 import (
+	"context"
 	"log"
-	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -15,6 +17,26 @@ import (
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
+
+func lookupTXT(domain string) ([]string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	cmd := exec.CommandContext(ctx, "powershell", "-Command",
+		"Resolve-DnsName -Name '"+domain+"' -Type TXT -Server 8.8.8.8 | Select-Object -ExpandProperty Strings")
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
+	var result []string
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line != "" {
+			result = append(result, line)
+		}
+	}
+	return result, nil
+}
 
 type CertHandler struct {
 	db      *store.DB
@@ -62,7 +84,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 			return
 		}
 
-		client.SetDNSProvider()
+		client.SetDNSProvider(h.cfg.ACME.RecursiveNameservers)
 
 		result, err := client.Obtain(d.Domain)
 		if err != nil {
@@ -70,7 +92,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 			app.Status = "error"
 			app.ErrorMsg = acme.CleanError(err)
 			if app.CertID > 0 {
-				h.db.Delete(&store.Certificate{ID: app.CertID})
+				h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "error", ErrorMsg: acme.CleanError(err)})
 			}
 			return
 		}
@@ -121,7 +143,10 @@ func (h *CertHandler) VerifyDNS(c *gin.Context) {
 		return
 	}
 
-	names, err := net.LookupTXT("_acme-challenge." + req.Domain)
+	names, err := lookupTXT("_acme-challenge." + req.Domain)
+	if err != nil {
+		log.Printf("[dns] lookup TXT error for %s: %v", req.Domain, err)
+	}
 	if err != nil || len(names) == 0 {
 		response.Error(c, 400, "DNS TXT 记录未找到，请确认已添加")
 		return

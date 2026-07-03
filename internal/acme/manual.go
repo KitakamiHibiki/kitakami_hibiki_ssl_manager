@@ -38,7 +38,7 @@ func (p *ManualProvider) CleanUp(domain, token, keyAuth string) error {
 
 // Timeout is used by lego to know how long to wait.
 func (p *ManualProvider) Timeout() (time.Duration, time.Duration) {
-	return 10 * time.Minute, 2 * time.Second
+	return 30 * time.Second, 2 * time.Second
 }
 
 // GetKeyAuth returns the key auth value for a domain challenge.

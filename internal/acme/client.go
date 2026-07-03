@@ -52,8 +52,12 @@ func NewClient(email, directory, certDir string) (*Client, error) {
 	return &Client{legoClient: client, certDir: certDir}, nil
 }
 
-func (c *Client) SetDNSProvider() {
-	c.legoClient.Challenge.SetDNS01Provider(ManualDNS, dns01.AddDNSTimeout(10*time.Minute))
+func (c *Client) SetDNSProvider(nameservers []string) {
+	c.legoClient.Challenge.SetDNS01Provider(
+		ManualDNS,
+		dns01.AddDNSTimeout(10*time.Minute),
+		dns01.AddRecursiveNameservers(nameservers),
+	)
 }
 
 // Obtain requests a certificate for the given domain.

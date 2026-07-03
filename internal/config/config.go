@@ -1,6 +1,8 @@
 package config
 
 import (
+	"crypto/rand"
+	"encoding/hex"
 	"os"
 
 	"gopkg.in/yaml.v3"
@@ -18,7 +20,8 @@ type ServerConfig struct {
 }
 
 type ACMEConfig struct {
-	Directory string `yaml:"directory"`
+	Directory             string   `yaml:"directory"`
+	RecursiveNameservers  []string `yaml:"recursive_nameservers"`
 }
 
 type StorageConfig struct {
@@ -28,6 +31,7 @@ type StorageConfig struct {
 
 type AuthConfig struct {
 	JWTSecret string `yaml:"jwt_secret"`
+	DeployKey string `yaml:"deploy_key"`
 }
 
 func Load(path string) (*Config, error) {
@@ -44,6 +48,21 @@ func Load(path string) (*Config, error) {
 	}
 	if cfg.ACME.Directory == "" {
 		cfg.ACME.Directory = "https://acme-v02.api.letsencrypt.org/directory"
+	}
+	if len(cfg.ACME.RecursiveNameservers) == 0 {
+		cfg.ACME.RecursiveNameservers = []string{
+			"119.29.29.29:53",
+			"223.5.5.5:53",
+			"114.114.114.114:53",
+			"8.8.8.8:53",
+		}
+	}
+	if cfg.Auth.DeployKey == "" {
+		b := make([]byte, 16)
+		rand.Read(b)
+		cfg.Auth.DeployKey = hex.EncodeToString(b)
+		newData, _ := yaml.Marshal(cfg)
+		os.WriteFile(path, newData, 0644)
 	}
 	return cfg, nil
 }
