@@ -51,6 +51,16 @@ const router = createRouter({
           component: () => import('../views/Deploy.vue'),
         },
         {
+          path: 'certs',
+          name: 'certs',
+          component: () => import('../views/Certs.vue'),
+        },
+        {
+          path: 'certs/detail',
+          name: 'cert-detail',
+          component: () => import('../views/CertDetail.vue'),
+        },
+        {
           path: 'users',
           name: 'users',
           component: () => import('../views/Users.vue'),

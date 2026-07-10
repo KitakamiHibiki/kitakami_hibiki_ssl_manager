@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"os/exec"
@@ -39,6 +40,17 @@ func lookupTXT(domain string) ([]string, error) {
 	return result, nil
 }
 
+// extractRootDomain returns the root domain from a domain name.
+// e.g. "www.example.com" -> "example.com", "*.example.com" -> "example.com"
+func extractRootDomain(domain string) string {
+	domain = strings.TrimPrefix(domain, "*.")
+	parts := strings.Split(domain, ".")
+	if len(parts) <= 2 {
+		return domain
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
 type CertHandler struct {
 	db      *store.DB
 	cfg     *config.Config
@@ -51,7 +63,8 @@ func NewCertHandler(db *store.DB, cfg *config.Config, certDir string) *CertHandl
 
 func (h *CertHandler) Apply(c *gin.Context) {
 	var req struct {
-		DomainID uint `json:"domain_id"`
+		DomainID     uint     `json:"domain_id"`
+		ExtraDomains []string `json:"extra_domains"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || req.DomainID == 0 {
 		response.Error(c, 400, "domain_id is required")
@@ -69,8 +82,35 @@ func (h *CertHandler) Apply(c *gin.Context) {
 		return
 	}
 
+	// Build full domain list: primary + extras
+	allDomains := []string{d.Domain}
+	allDomains = append(allDomains, req.ExtraDomains...)
+
+	// Validate extras share the same root domain
+	root := extractRootDomain(d.Domain)
+	for _, extra := range req.ExtraDomains {
+		if extractRootDomain(extra) != root {
+			response.Error(c, 400, "extra domain '"+extra+"' does not share the same root domain as '"+d.Domain+"'")
+			return
+		}
+	}
+
+	// Deduplicate
+	seen := map[string]bool{}
+	unique := allDomains[:0]
+	for _, name := range allDomains {
+		if !seen[name] {
+			seen[name] = true
+			unique = append(unique, name)
+		}
+	}
+	allDomains = unique
+
+	domainsJSON, _ := json.Marshal(allDomains)
+
 	certRecord := &store.Certificate{
 		DomainID: d.ID,
+		Domains:  string(domainsJSON),
 		Status:   "verifying",
 	}
 	if err := h.db.CreateCertificate(certRecord); err != nil {
@@ -81,8 +121,9 @@ func (h *CertHandler) Apply(c *gin.Context) {
 	app := &acme.Application{
 		Domain:   d.Domain,
 		DomainID: d.ID,
-		CertID:   certRecord.ID,
+		Domains:  allDomains,
 		Status:   "verifying",
+		CertID:   certRecord.ID,
 	}
 	acme.SetApplication(d.Domain, app)
 
@@ -98,7 +139,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 
 		client.SetDNSProvider(h.cfg.ACME.RecursiveNameservers)
 
-		result, err := client.Obtain(d.Domain)
+		result, err := client.Obtain(allDomains)
 		if err != nil {
 			log.Printf("[acme] obtain error for %s: %v", d.Domain, err)
 			app.Status = "error"
@@ -131,7 +172,7 @@ func (h *CertHandler) Apply(c *gin.Context) {
 		}
 	}()
 
-	response.OK(c, gin.H{"domain": d.Domain, "cert_id": certRecord.ID, "status": "verifying"})
+	response.OK(c, gin.H{"domain": d.Domain, "cert_id": certRecord.ID, "domains": allDomains, "status": "verifying"})
 }
 
 func (h *CertHandler) VerifyDNS(c *gin.Context) {
@@ -143,7 +184,19 @@ func (h *CertHandler) VerifyDNS(c *gin.Context) {
 		return
 	}
 
-	app := acme.GetApplication(req.Domain)
+	// Find the application by any of the SAN domains
+	var app *acme.Application
+	for _, a := range getAllApps() {
+		for _, d := range a.Domains {
+			if d == req.Domain || strings.TrimPrefix(d, "*.") == strings.TrimPrefix(req.Domain, "*.") {
+				app = a
+				break
+			}
+		}
+		if app != nil {
+			break
+		}
+	}
 	if app == nil {
 		response.Error(c, 404, "no pending application")
 		return
@@ -158,27 +211,50 @@ func (h *CertHandler) VerifyDNS(c *gin.Context) {
 		return
 	}
 
-		expected := acme.ManualDNS.GetKeyAuth(req.Domain)
-		if expected == "" {
-			response.Error(c, 400, "no pending challenge for this domain")
-			return
+	expected := acme.ManualDNS.GetKeyAuth(req.Domain)
+	if expected == "" {
+		response.Error(c, 400, "no pending challenge for this domain")
+		return
+	}
+	matched := false
+	for _, n := range names {
+		if strings.Contains(n, expected) {
+			matched = true
+			break
 		}
-		matched := false
-		for _, n := range names {
-			if strings.Contains(n, expected) {
-				matched = true
-				break
-			}
-		}
-		if !matched {
-			response.Error(c, 400, "DNS TXT 记录值不匹配，请确认已更新为最新挑战值")
-			return
-		}
+	}
+	if !matched {
+		response.Error(c, 400, "DNS TXT 记录值不匹配，请确认已更新为最新挑战值")
+		return
+	}
 
-	h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "issuing"})
+	// Signal this specific domain
+	acme.ManualDNS.Signal(req.Domain)
 
-	app.Status = "issuing"
-	response.OK(c, gin.H{"status": "issuing", "cert_id": app.CertID})
+	// Check if all domains are now signaled
+	allDone := true
+	var pendingList []string
+	for _, d := range app.Domains {
+		if !acme.ManualDNS.IsSignaled(d) {
+			allDone = false
+			pendingList = append(pendingList, d)
+		}
+	}
+
+	if allDone {
+		h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "issuing"})
+		app.Status = "issuing"
+		response.OK(c, gin.H{"status": "issuing", "cert_id": app.CertID, "all_verified": true})
+	} else {
+		response.OK(c, gin.H{"status": "verifying", "cert_id": app.CertID, "all_verified": false, "pending": pendingList})
+	}
+}
+
+func getAllApps() []*acme.Application {
+	// Access the internal map via a helper on ManualProvider
+	// We use a trick: iterate through known domains
+	// Actually, we need a way to list all apps. Let's add a method.
+	return acme.GetAllApplications()
 }
 
 func (h *CertHandler) Status(c *gin.Context) {
@@ -244,7 +320,7 @@ func (h *CertHandler) ChallengeValue(c *gin.Context) {
 		response.Error(c, 404, "no pending challenge for this domain")
 		return
 	}
-	response.OK(c, gin.H{"challenge_value": val})
+	response.OK(c, gin.H{"domain": domain, "challenge_value": val})
 }
 
 func (h *CertHandler) Get(c *gin.Context) {

@@ -9,7 +9,8 @@ import (
 type Application struct {
 	Domain    string    `json:"domain"`
 	DomainID  uint      `json:"domain_id"`
-	Status    string    `json:"status"` // pending, issued, error
+	Domains   []string  `json:"domains"`   // all SAN domains (primary first)
+	Status    string    `json:"status"`    // pending, issued, error
 	ErrorMsg  string    `json:"error_msg"`
 	ExpiresAt time.Time `json:"expires_at"`
 	CertID    uint      `json:"cert_id"`
@@ -17,7 +18,7 @@ type Application struct {
 
 var (
 	appsMu   sync.Mutex
-	apps     = make(map[string]*Application) // keyed by domain
+	apps     = make(map[string]*Application) // keyed by primary domain
 )
 
 // SetApplication stores an in-progress application.
@@ -32,4 +33,15 @@ func GetApplication(domain string) *Application {
 	appsMu.Lock()
 	defer appsMu.Unlock()
 	return apps[domain]
+}
+
+// GetAllApplications returns all in-progress applications.
+func GetAllApplications() []*Application {
+	appsMu.Lock()
+	defer appsMu.Unlock()
+	list := make([]*Application, 0, len(apps))
+	for _, a := range apps {
+		list = append(list, a)
+	}
+	return list
 }

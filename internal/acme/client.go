@@ -63,10 +63,10 @@ func (c *Client) SetDNSProvider(nameservers []string) {
 	)
 }
 
-// Obtain requests a certificate for the given domain.
-func (c *Client) Obtain(domain string) (*certificate.Resource, error) {
+// Obtain requests a certificate for the given domains (first is primary).
+func (c *Client) Obtain(domains []string) (*certificate.Resource, error) {
 	return c.legoClient.Certificate.Obtain(certificate.ObtainRequest{
-		Domains: []string{domain},
+		Domains: domains,
 		Bundle:  true,
 	})
 }

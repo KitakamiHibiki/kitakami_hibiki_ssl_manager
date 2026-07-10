@@ -121,6 +121,43 @@ func (db *DB) GetExpiringCertificates(before time.Time) ([]Certificate, error) {
 	return certs, nil
 }
 
+func (db *DB) DeleteCertificate(id uint) error {
+	return db.Delete(&Certificate{}, id).Error
+}
+
+func (db *DB) DeleteCertificateByIDAndUser(id, userID uint) error {
+	var c Certificate
+	if err := db.First(&c, id).Error; err != nil {
+		return err
+	}
+	var d Domain
+	if err := db.Where("id = ? AND user_id = ?", c.DomainID, userID).First(&d).Error; err != nil {
+		return err
+	}
+	return db.Delete(&Certificate{}, id).Error
+}
+
+func (db *DB) ListAllCertificates(offset, limit int) ([]Certificate, int64, error) {
+	var certs []Certificate
+	var total int64
+
+	if err := db.Model(&Certificate{}).Count(&total).Error; err != nil {
+		return nil, 0, err
+	}
+
+	err := db.Order("id DESC").Offset(offset).Limit(limit).Find(&certs).Error
+	if err != nil {
+		return nil, 0, err
+	}
+	for i := range certs {
+		var d Domain
+		if err := db.First(&d, certs[i].DomainID).Error; err == nil {
+			certs[i].Domain = d.Domain
+		}
+	}
+	return certs, total, nil
+}
+
 func (db *DB) MarkIncompleteCertificatesAsError() error {
 	return db.Model(&Certificate{}).
 		Where("status NOT IN ?", []string{"issued", "error"}).

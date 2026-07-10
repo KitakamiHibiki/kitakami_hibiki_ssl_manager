@@ -155,4 +155,17 @@ export function deleteUser(id: number) {
   return api.delete('/users', { params: { id } })
 }
 
+// Certificate Management
+export function getCertificates(params?: { page?: number; page_size?: number; domain_id?: number }) {
+  return api.get('/certificates', { params })
+}
+
+export function getCertificateDetail(id: number) {
+  return api.get('/certificates/detail', { params: { id } })
+}
+
+export function deleteCertificate(id: number) {
+  return api.delete('/certificates', { params: { id } })
+}
+
 export default api

@@ -50,6 +50,7 @@ func main() {
 	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret, cfg.Auth.DeployKey)
 	domainH := handler.NewDomainHandler(db)
 	certH := handler.NewCertHandler(db, cfg, certDir)
+	certMgmtH := handler.NewCertificateHandler(db)
 	userH := handler.NewUserHandler(db)
 	deployH := handler.NewDeployHandler(db, certDir)
 	sysCfgH := handler.NewSystemConfigHandler(db)
@@ -88,6 +89,14 @@ func main() {
 			certs.GET("/download", certH.Download)
 			certs.POST("/deploy", deployH.Deploy)
 			certs.GET("/deploy-logs", deployH.DeployLogs)
+		}
+
+		certificates := api.Group("/certificates")
+		certificates.Use(authMw)
+		{
+			certificates.GET("", certMgmtH.List)
+			certificates.GET("/detail", certMgmtH.Get)
+			certificates.DELETE("", certMgmtH.Delete)
 		}
 
 		users := api.Group("/users")

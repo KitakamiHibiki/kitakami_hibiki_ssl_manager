@@ -9,15 +9,16 @@ import (
 )
 
 // ManualProvider implements lego's ChallengeProvider for DNS-01.
-// It stores the challenge values and blocks until ResumeChallenge is called.
+// It stores the challenge values and blocks until Signal is called for each domain.
 type ManualProvider struct {
 	mu      sync.Mutex
 	records map[string]record
 }
 
 type record struct {
-	keyAuth string
-	signal  chan struct{}
+	keyAuth  string
+	signal   chan struct{}
+	signaled bool
 }
 
 func NewManualProvider() *ManualProvider {
@@ -59,10 +60,31 @@ func (p *ManualProvider) GetKeyAuth(domain string) string {
 func (p *ManualProvider) Signal(domain string) error {
 	p.mu.Lock()
 	r, ok := p.records[domain]
-	p.mu.Unlock()
 	if !ok {
+		p.mu.Unlock()
 		return fmt.Errorf("no pending challenge for %s", domain)
 	}
-	close(r.signal)
+	if !r.signaled {
+		r.signaled = true
+		p.records[domain] = r
+		close(r.signal)
+	}
+	p.mu.Unlock()
 	return nil
+}
+
+// HasDomain returns true if a challenge exists for the given domain.
+func (p *ManualProvider) HasDomain(domain string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	_, ok := p.records[domain]
+	return ok
+}
+
+// IsSignaled returns true if the challenge for the domain has been signaled.
+func (p *ManualProvider) IsSignaled(domain string) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	r, ok := p.records[domain]
+	return ok && r.signaled
 }

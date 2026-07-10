@@ -30,6 +30,7 @@ type Certificate struct {
 	ID        uint      `gorm:"primaryKey" json:"id"`
 	DomainID  uint      `gorm:"index;not null" json:"domain_id"`
 	Domain    string    `gorm:"-" json:"domain"`
+	Domains   string    `gorm:"default:'[]'" json:"domains"` // JSON array of all SAN domains
 	Status    string    `gorm:"default:pending" json:"status"`
 	ErrorMsg  string    `gorm:"default:''" json:"error_msg"`
 	IssuedAt  time.Time `json:"issued_at"`

@@ -92,6 +92,13 @@ func allMigrations() []Migration {
 				return tx.AutoMigrate(&DeployLog{})
 			},
 		},
+		{
+			Version:     "2026-07-10-001",
+			Description: "Add domains column to certificates for multi-domain SAN support",
+			Up: func(tx *gorm.DB) error {
+				return tx.AutoMigrate(&Certificate{})
+			},
+		},
 	}
 }
 
