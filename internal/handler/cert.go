@@ -2,8 +2,14 @@ package handler
 
 import (
 	"context"
+	"crypto/md5"
+	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"io"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,7 +21,7 @@ import (
 
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/acme"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/config"
-	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/deploy"
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/dns"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/response"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/store"
 )
@@ -40,8 +46,6 @@ func lookupTXT(domain string) ([]string, error) {
 	return result, nil
 }
 
-// extractRootDomain returns the root domain from a domain name.
-// e.g. "www.example.com" -> "example.com", "*.example.com" -> "example.com"
 func extractRootDomain(domain string) string {
 	domain = strings.TrimPrefix(domain, "*.")
 	parts := strings.Split(domain, ".")
@@ -55,47 +59,45 @@ type CertHandler struct {
 	db      *store.DB
 	cfg     *config.Config
 	certDir string
+	dnsAddr string
 }
 
-func NewCertHandler(db *store.DB, cfg *config.Config, certDir string) *CertHandler {
-	return &CertHandler{db: db, cfg: cfg, certDir: certDir}
+func NewCertHandler(db *store.DB, cfg *config.Config, certDir string, dnsAddr string) *CertHandler {
+	return &CertHandler{db: db, cfg: cfg, certDir: certDir, dnsAddr: dnsAddr}
 }
 
 func (h *CertHandler) Apply(c *gin.Context) {
 	var req struct {
-		DomainID     uint     `json:"domain_id"`
-		ExtraDomains []string `json:"extra_domains"`
+		Domain        string   `json:"domain"`
+		Email         string   `json:"email"`
+		ExtraDomains  []string `json:"extra_domains"`
+		ChallengeType string   `json:"challenge_type"`
 	}
-	if err := c.ShouldBindJSON(&req); err != nil || req.DomainID == 0 {
-		response.Error(c, 400, "domain_id is required")
+	if err := c.ShouldBindJSON(&req); err != nil || req.Domain == "" {
+		response.Error(c, 400, "domain is required")
 		return
+	}
+	if req.ChallengeType == "" {
+		req.ChallengeType = "http"
 	}
 
 	userID := c.GetUint("user_id")
-	d, err := h.db.GetDomain(req.DomainID)
-	if err != nil {
-		response.Error(c, 404, "domain not found")
-		return
-	}
-	if d.UserID != userID {
-		response.Error(c, 403, "not your domain")
-		return
+	email := req.Email
+	if email == "" {
+		email = c.GetString("email")
 	}
 
-	// Build full domain list: primary + extras
-	allDomains := []string{d.Domain}
+	allDomains := []string{req.Domain}
 	allDomains = append(allDomains, req.ExtraDomains...)
 
-	// Validate extras share the same root domain
-	root := extractRootDomain(d.Domain)
+	root := extractRootDomain(req.Domain)
 	for _, extra := range req.ExtraDomains {
 		if extractRootDomain(extra) != root {
-			response.Error(c, 400, "extra domain '"+extra+"' does not share the same root domain as '"+d.Domain+"'")
+			response.Error(c, 400, "extra domain '"+extra+"' does not share the same root domain as '"+req.Domain+"'")
 			return
 		}
 	}
 
-	// Deduplicate
 	seen := map[string]bool{}
 	unique := allDomains[:0]
 	for _, name := range allDomains {
@@ -106,73 +108,55 @@ func (h *CertHandler) Apply(c *gin.Context) {
 	}
 	allDomains = unique
 
-	domainsJSON, _ := json.Marshal(allDomains)
-
-	certRecord := &store.Certificate{
-		DomainID: d.ID,
-		Domains:  string(domainsJSON),
-		Status:   "verifying",
+	app := &acme.Application{
+		Domain:        req.Domain,
+		Domains:       allDomains,
+		Status:        "verifying",
+		UserID:        userID,
+		Email:         email,
+		DomainHash:    md5Hex(req.Domain),
+		ChallengeType: req.ChallengeType,
 	}
-	if err := h.db.CreateCertificate(certRecord); err != nil {
-		response.Error(c, 500, err.Error())
+	acme.SetApplication(app)
+
+	response.OK(c, gin.H{"domain": req.Domain, "domains": allDomains, "domain_hash": app.DomainHash, "status": "verifying"})
+}
+
+func (h *CertHandler) VerifyHTTPProxy(c *gin.Context) {
+	var req struct {
+		Domain     string `json:"domain"`
+		DomainHash string `json:"domain_hash"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.Domain == "" {
+		response.Error(c, 400, "domain is required")
 		return
 	}
 
-	app := &acme.Application{
-		Domain:   d.Domain,
-		DomainID: d.ID,
-		Domains:  allDomains,
-		Status:   "verifying",
-		CertID:   certRecord.ID,
+	verifyToken := "ssl-verify"
+	if req.DomainHash != "" {
+		verifyToken = "ssl-verify-" + req.DomainHash
 	}
-	acme.SetApplication(d.Domain, app)
 
-	go func() {
-		client, err := acme.NewClient(d.Email, h.cfg.ACME.Directory, h.certDir)
-		if err != nil {
-			log.Printf("[acme] new client error: %v", err)
-			app.Status = "error"
-			app.ErrorMsg = acme.CleanError(err)
-			h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "error", ErrorMsg: acme.CleanError(err)})
-			return
-		}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
-		client.SetDNSProvider(h.cfg.ACME.RecursiveNameservers)
+	httpReq, _ := http.NewRequestWithContext(ctx, "GET",
+		"http://"+req.Domain+"/.well-known/acme-challenge/"+verifyToken, nil)
 
-		result, err := client.Obtain(allDomains)
-		if err != nil {
-			log.Printf("[acme] obtain error for %s: %v", d.Domain, err)
-			app.Status = "error"
-			app.ErrorMsg = acme.CleanError(err)
-			h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "error", ErrorMsg: acme.CleanError(err)})
-			return
-		}
+	resp, err := http.DefaultClient.Do(httpReq)
+	if err != nil {
+		response.Error(c, 400, "代理验证失败：无法连接到 "+req.Domain+"，请确认代理配置已生效")
+		return
+	}
+	defer resp.Body.Close()
 
-		certPEM := []byte(result.Certificate)
-		expiry, _ := acme.ParseExpiry(certPEM)
+	body, _ := io.ReadAll(resp.Body)
+	if string(body) != "ssl-verify-ok" {
+		response.Error(c, 400, "代理验证失败：响应不匹配，请确认已将 "+req.Domain+" 的 /.well-known/acme-challenge/ 路径代理到本服务器")
+		return
+	}
 
-		certPath := h.certDir + "/" + d.Domain
-		os.MkdirAll(certPath, 0755)
-		os.WriteFile(certPath+"/fullchain.pem", certPEM, 0644)
-		os.WriteFile(certPath+"/privkey.pem", result.PrivateKey, 0600)
-
-		certRecord := &store.Certificate{ID: app.CertID}
-		certRecord.Status = "issued"
-		certRecord.IssuedAt = time.Now()
-		certRecord.ExpiresAt = expiry
-		h.db.UpdateCertificate(certRecord)
-		app.Status = "issued"
-		app.ExpiresAt = expiry
-
-		// auto-deploy
-		d2, _ := h.db.GetDomain(d.ID)
-		if d2 != nil && d2.DeployEnabled && d2.DeployNodeID > 0 {
-			deployer := deploy.NewDeployer(h.db, h.certDir)
-			go deployer.DeployCert(app.CertID)
-		}
-	}()
-
-	response.OK(c, gin.H{"domain": d.Domain, "cert_id": certRecord.ID, "domains": allDomains, "status": "verifying"})
+	response.OK(c, gin.H{"domain": req.Domain, "status": "ok"})
 }
 
 func (h *CertHandler) VerifyDNS(c *gin.Context) {
@@ -184,86 +168,162 @@ func (h *CertHandler) VerifyDNS(c *gin.Context) {
 		return
 	}
 
-	// Find the application by any of the SAN domains
-	var app *acme.Application
-	for _, a := range getAllApps() {
-		for _, d := range a.Domains {
-			if d == req.Domain || strings.TrimPrefix(d, "*.") == strings.TrimPrefix(req.Domain, "*.") {
-				app = a
-				break
-			}
-		}
-		if app != nil {
-			break
-		}
-	}
+	app := acme.FindApplicationByDomain(req.Domain)
 	if app == nil {
 		response.Error(c, 404, "no pending application")
 		return
 	}
 
-	names, err := lookupTXT("_acme-challenge." + req.Domain)
-	if err != nil {
-		log.Printf("[dns] lookup TXT error for %s: %v", req.Domain, err)
-	}
-	if err != nil || len(names) == 0 {
-		response.Error(c, 400, "DNS TXT 记录未找到，请确认已添加")
-		return
-	}
-
-	expected := acme.ManualDNS.GetKeyAuth(req.Domain)
-	if expected == "" {
-		response.Error(c, 400, "no pending challenge for this domain")
-		return
-	}
-	matched := false
-	for _, n := range names {
-		if strings.Contains(n, expected) {
-			matched = true
-			break
+	if app.ChallengeType == "http" {
+		verifyToken := "ssl-verify-" + app.DomainHash
+		proxyCtx, proxyCancel := context.WithTimeout(context.Background(), 8*time.Second)
+		proxyReq, _ := http.NewRequestWithContext(proxyCtx, "GET",
+			"http://"+req.Domain+"/.well-known/acme-challenge/"+verifyToken, nil)
+		proxyResp, proxyErr := http.DefaultClient.Do(proxyReq)
+		proxyCancel()
+		if proxyErr != nil {
+			response.Error(c, 400, "无法连接到 "+req.Domain+"，请确认代理配置已生效")
+			return
 		}
-	}
-	if !matched {
-		response.Error(c, 400, "DNS TXT 记录值不匹配，请确认已更新为最新挑战值")
-		return
+		if proxyResp != nil {
+			body, _ := io.ReadAll(proxyResp.Body)
+			proxyResp.Body.Close()
+			if string(body) != "ssl-verify-ok" {
+				response.Error(c, 400, "代理验证失败：请确认已将 "+req.Domain+" 的 /.well-known/acme-challenge/ 代理到本服务器")
+				return
+			}
+		}
+
+		acme.ManualDNS.HTTPSignal(req.Domain)
+	} else if app.ChallengeType == "cname" {
+		host := "localhost"
+		if u, err := url.Parse(h.cfg.Server.ProxyURL); err == nil && u.Hostname() != "" {
+			host = u.Hostname()
+		}
+		queryName := fmt.Sprintf("%s.challenge.%s", app.DomainHash, host)
+		names, err := dns.ResolveTXT(h.dnsAddr, queryName)
+		if err != nil {
+			response.Error(c, 400, "CNAME 验证失败，无法查询 DNS 记录："+err.Error())
+			return
+		}
+		if len(names) == 0 {
+			response.Error(c, 400, "CNAME 记录未生效，请确认已添加 CNAME 记录")
+			return
+		}
+
+		expected := acme.ManualDNS.GetKeyAuth(req.Domain)
+		if expected == "" {
+			response.Error(c, 400, "no pending challenge for this domain")
+			return
+		}
+		matched := false
+		for _, n := range names {
+			if strings.Contains(n, expected) {
+				matched = true
+				break
+			}
+		}
+		if !matched {
+			response.Error(c, 400, "CNAME 记录值不匹配，请确认已更新")
+			return
+		}
+
+		acme.ManualDNS.Signal(req.Domain)
 	}
 
-	// Signal this specific domain
-	acme.ManualDNS.Signal(req.Domain)
-
-	// Check if all domains are now signaled
 	allDone := true
 	var pendingList []string
 	for _, d := range app.Domains {
-		if !acme.ManualDNS.IsSignaled(d) {
-			allDone = false
-			pendingList = append(pendingList, d)
+		if app.ChallengeType == "http" {
+			if !acme.ManualDNS.IsHTTPSignaled(d) {
+				allDone = false
+				pendingList = append(pendingList, d)
+			}
+		} else {
+			if !acme.ManualDNS.IsSignaled(d) {
+				allDone = false
+				pendingList = append(pendingList, d)
+			}
 		}
 	}
 
 	if allDone {
-		h.db.UpdateCertificate(&store.Certificate{ID: app.CertID, Status: "issuing"})
+		domainsJSON, _ := json.Marshal(app.Domains)
+		certRecord := &store.Certificate{
+			UserID:  app.UserID,
+			Domain:  app.Domain,
+			Domains: string(domainsJSON),
+			Email:   app.Email,
+			Status:  "issuing",
+		}
+		if err := h.db.CreateCertificate(certRecord); err != nil {
+			response.Error(c, 500, err.Error())
+			return
+		}
+		acme.RemoveApplication(app)
+		app.CertID = certRecord.ID
+		acme.SetApplication(app)
 		app.Status = "issuing"
+		go h.startObtain(app)
 		response.OK(c, gin.H{"status": "issuing", "cert_id": app.CertID, "all_verified": true})
 	} else {
 		response.OK(c, gin.H{"status": "verifying", "cert_id": app.CertID, "all_verified": false, "pending": pendingList})
 	}
 }
 
+func (h *CertHandler) startObtain(app *acme.Application) {
+	client, err := acme.NewClient(app.Email, h.cfg.ACME.Directory, h.certDir)
+	if err != nil {
+		log.Printf("[acme] new client error: %v", err)
+		app.Status = "error"
+		app.ErrorMsg = acme.CleanError(err)
+		h.db.UpdateCertificate(app.CertID, map[string]interface{}{"status": "error", "error_msg": acme.CleanError(err)})
+		return
+	}
+
+	if app.ChallengeType == "http" {
+		client.SetHTTPProvider()
+	} else {
+		client.SetDNSProvider(h.cfg.ACME.RecursiveNameservers)
+	}
+
+	result, err := client.Obtain(app.Domains)
+	if err != nil {
+		log.Printf("[acme] obtain error for %s: %v", app.Domain, err)
+		app.Status = "error"
+		app.ErrorMsg = acme.CleanError(err)
+		h.db.UpdateCertificate(app.CertID, map[string]interface{}{"status": "error", "error_msg": acme.CleanError(err)})
+		return
+	}
+
+	certPEM := []byte(result.Certificate)
+	expiry, _ := acme.ParseExpiry(certPEM)
+
+	certPath := h.certDir + "/" + app.Domain
+	os.MkdirAll(certPath, 0755)
+	os.WriteFile(certPath+"/fullchain.pem", certPEM, 0644)
+	os.WriteFile(certPath+"/privkey.pem", result.PrivateKey, 0600)
+
+	h.db.UpdateCertificate(app.CertID, map[string]interface{}{
+		"status":     "issued",
+		"issued_at":  time.Now(),
+		"expires_at": expiry,
+	})
+	app.Status = "issued"
+	app.ExpiresAt = expiry
+}
+
 func getAllApps() []*acme.Application {
-	// Access the internal map via a helper on ManualProvider
-	// We use a trick: iterate through known domains
-	// Actually, we need a way to list all apps. Let's add a method.
 	return acme.GetAllApplications()
 }
 
 func (h *CertHandler) Status(c *gin.Context) {
-	domain := c.Query("domain")
-	if domain == "" {
-		response.Error(c, 400, "domain is required")
+	certID, err := strconv.ParseUint(c.Query("cert_id"), 10, 64)
+	if err != nil || certID == 0 {
+		response.Error(c, 400, "cert_id is required")
 		return
 	}
-	app := acme.GetApplication(domain)
+	app := acme.GetApplication(uint(certID))
 	if app == nil {
 		response.Error(c, 404, "no pending application")
 		return
@@ -283,17 +343,7 @@ func (h *CertHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	domainID, _ := strconv.ParseUint(c.Query("domain_id"), 10, 64)
-
-	var certs []store.Certificate
-	var total int64
-	var err error
-
-	if domainID > 0 {
-		certs, total, err = h.db.ListCertificatesByDomainAndUser(uint(domainID), userID, offset, pageSize)
-	} else {
-		certs, total, err = h.db.ListCertificatesByUser(userID, offset, pageSize)
-	}
+	certs, total, err := h.db.ListCertificatesByUser(userID, offset, pageSize)
 	if err != nil {
 		response.Error(c, 500, err.Error())
 		return
@@ -315,12 +365,28 @@ func (h *CertHandler) ChallengeValue(c *gin.Context) {
 		response.Error(c, 400, "domain is required")
 		return
 	}
+
+	token, keyAuth := acme.ManualDNS.GetHTTPChallenge(domain)
+	if token != "" {
+		response.OK(c, gin.H{
+			"domain":          domain,
+			"challenge_type":  "http",
+			"challenge_token": token,
+			"challenge_value": keyAuth,
+		})
+		return
+	}
+
 	val := acme.ManualDNS.GetKeyAuth(domain)
 	if val == "" {
 		response.Error(c, 404, "no pending challenge for this domain")
 		return
 	}
-	response.OK(c, gin.H{"domain": domain, "challenge_value": val})
+	response.OK(c, gin.H{
+		"domain":          domain,
+		"challenge_type":  "dns",
+		"challenge_value": val,
+	})
 }
 
 func (h *CertHandler) Get(c *gin.Context) {
@@ -368,4 +434,9 @@ func (h *CertHandler) Download(c *gin.Context) {
 	}
 
 	c.FileAttachment(filePath, cert.Domain+"."+fileType+".pem")
+}
+
+func md5Hex(s string) string {
+	h := md5.Sum([]byte(s))
+	return hex.EncodeToString(h[:])
 }

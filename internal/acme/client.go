@@ -63,6 +63,13 @@ func (c *Client) SetDNSProvider(nameservers []string) {
 	)
 }
 
+// SetHTTPProvider configures the client to use HTTP-01 challenge.
+// The provider stores challenge tokens; user manually places files before signaling.
+func (c *Client) SetHTTPProvider() {
+	httpProvider := NewHTTPManualProvider(ManualDNS)
+	c.legoClient.Challenge.SetHTTP01Provider(httpProvider)
+}
+
 // Obtain requests a certificate for the given domains (first is primary).
 func (c *Client) Obtain(domains []string) (*certificate.Resource, error) {
 	return c.legoClient.Certificate.Obtain(certificate.ObtainRequest{

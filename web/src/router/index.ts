@@ -21,27 +21,22 @@ const router = createRouter({
           component: () => import('../views/Dashboard.vue'),
         },
         {
-          path: 'domains',
-          name: 'domains',
-          component: () => import('../views/Domains.vue'),
+          path: 'certs',
+          name: 'certs',
+          component: () => import('../views/Certs.vue'),
         },
         {
-          path: 'domains/add',
-          name: 'add-domain',
-          component: () => import('../views/AddDomain.vue'),
-        },
-        {
-          path: 'domains/detail',
-          name: 'domain-detail',
-          component: () => import('../views/DomainDetail.vue'),
-        },
-        {
-          path: 'domains/detail/cert-apply',
+          path: 'certs/apply',
           name: 'cert-apply',
           component: () => import('../views/CertApply.vue'),
         },
         {
-          path: 'domains/detail/cert-download',
+          path: 'certs/detail',
+          name: 'cert-detail',
+          component: () => import('../views/CertDetail.vue'),
+        },
+        {
+          path: 'certs/download',
           name: 'cert-download',
           component: () => import('../views/CertDownload.vue'),
         },
@@ -49,16 +44,6 @@ const router = createRouter({
           path: 'deploy',
           name: 'deploy',
           component: () => import('../views/Deploy.vue'),
-        },
-        {
-          path: 'certs',
-          name: 'certs',
-          component: () => import('../views/Certs.vue'),
-        },
-        {
-          path: 'certs/detail',
-          name: 'cert-detail',
-          component: () => import('../views/CertDetail.vue'),
         },
         {
           path: 'users',

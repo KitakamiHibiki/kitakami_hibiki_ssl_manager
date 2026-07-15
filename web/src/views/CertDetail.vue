@@ -8,13 +8,15 @@
     <div v-if="loading" style="color:#999">加载中...</div>
     <div v-else-if="error" style="color:#f56c6c">{{ error }}</div>
     <template v-else-if="cert">
+      <!-- 证书信息 -->
       <div class="section">
-        <h3>基本信息</h3>
+        <h3>证书信息</h3>
         <el-descriptions :column="2" border>
           <el-descriptions-item label="证书 ID">{{ cert.id }}</el-descriptions-item>
           <el-descriptions-item label="域名">
             <strong>{{ cert.domain }}</strong>
           </el-descriptions-item>
+          <el-descriptions-item label="邮箱">{{ cert.email || '-' }}</el-descriptions-item>
           <el-descriptions-item label="状态">
             <el-tag :type="statusTagType(cert.status)">{{ cert.status }}</el-tag>
           </el-descriptions-item>
@@ -28,18 +30,25 @@
         </el-descriptions>
       </div>
 
+      <!-- 操作 -->
       <div v-if="cert.status === 'issued'" class="section">
         <h3>操作</h3>
-        <div style="display:flex;gap:12px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:24px;flex-wrap:wrap">
           <el-button type="primary" @click="downloadFile('fullchain','pem')" :loading="downloading === 'fullchain'">
             下载证书 (.pem)
           </el-button>
           <el-button type="primary" @click="downloadFile('privkey','key')" :loading="downloading === 'privkey'">
             下载私钥 (.key)
           </el-button>
-          <el-button type="success" @click="doDeploy" :loading="deploying">
-            部署证书
-          </el-button>
+          <el-button type="success" @click="doDeploy" :loading="deploying">部署证书</el-button>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:14px">自动部署</span>
+            <el-switch v-model="deployForm.enabled" @change="saveDeploy" :loading="saving" />
+          </div>
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-size:14px">自动续签</span>
+            <el-switch v-model="deployForm.auto_renew" @change="saveDeploy" :loading="saving" />
+          </div>
           <el-popconfirm title="确定删除此证书？" @confirm="doDelete">
             <template #reference>
               <el-button type="danger">删除证书</el-button>
@@ -48,11 +57,48 @@
         </div>
       </div>
 
+      <!-- 部署配置 -->
+      <div class="section">
+        <div class="section-header">
+          <h3>部署配置</h3>
+          <el-button v-if="!editing" size="small" @click="editing = true">修改</el-button>
+          <el-button v-else type="primary" size="small" @click="saveDeploy" :loading="saving">保存</el-button>
+        </div>
+        <el-form label-width="100px">
+          <el-form-item label="目标节点">
+            <el-select v-model="deployForm.node_id" placeholder="选择节点" :disabled="!editing" style="width:240px">
+              <el-option v-for="n in nodes" :key="n.id" :label="n.name" :value="n.id" />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="服务器类型">
+            <el-select v-model="deployForm.type" :disabled="!editing" style="width:240px">
+              <el-option label="Nginx" value="nginx" />
+              <el-option label="Apache" value="apache" disabled />
+              <el-option label="其他" value="other" disabled />
+            </el-select>
+          </el-form-item>
+          <el-form-item label="证书文件名">
+            <el-input v-model="deployForm.cert_name" placeholder="fullchain.pem" :disabled="!editing" style="width:240px" />
+          </el-form-item>
+          <el-form-item label="证书部署路径">
+            <el-input v-model="deployForm.cert_path" placeholder="/etc/nginx/certs" :disabled="!editing" style="width:240px" />
+          </el-form-item>
+          <el-form-item label="私钥文件名">
+            <el-input v-model="deployForm.key_name" placeholder="privkey.key" :disabled="!editing" style="width:240px" />
+          </el-form-item>
+          <el-form-item label="私钥部署路径">
+            <el-input v-model="deployForm.key_path" placeholder="/etc/nginx/certs" :disabled="!editing" style="width:240px" />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <!-- 错误信息 -->
       <div v-if="cert.error_msg" class="section">
         <h3 style="color:#f56c6c">错误信息</h3>
         <p style="color:#f56c6c">{{ cert.error_msg }}</p>
       </div>
 
+      <!-- 部署记录 -->
       <div class="section">
         <h3>部署记录</h3>
         <el-table :data="deployLogs" size="small" style="width:100%">
@@ -65,7 +111,7 @@
               </el-tag>
             </template>
           </el-table-column>
-          <el-table-column prop="detail" label="详情" min-width="200">
+          <el-table-column label="详情" min-width="200">
             <template #default="{ row }">
               <div v-if="row.status === 'failed'" style="color:#f56c6c;font-size:13px">{{ row.error_msg }}</div>
               <div v-else-if="row.detail" style="font-size:13px;white-space:pre-line">{{ row.detail }}</div>
@@ -95,10 +141,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, reactive, onMounted } from "vue"
 import { useRoute, useRouter } from "vue-router"
 import { ElMessage } from "element-plus"
-import { getCertificateDetail, deleteCertificate, deployCert, getDeployLogs } from "../api"
+import { getCertificateDetail, deleteCertificate, deployCert, getDeployLogs, getNodes, updateCertificate } from "../api"
 import api from "../api"
 
 const route = useRoute()
@@ -110,10 +156,24 @@ const error = ref("")
 const cert = ref<any>(null)
 const downloading = ref("")
 const deploying = ref(false)
+const saving = ref(false)
+const editing = ref(false)
+const nodes = ref<any[]>([])
 const deployLogs = ref<any[]>([])
 const deployLogPage = ref(1)
 const deployLogPageSize = ref(5)
 const deployLogTotal = ref(0)
+
+const deployForm = reactive({
+  enabled: false,
+  node_id: 0,
+  type: "nginx",
+  cert_name: "fullchain.pem",
+  cert_path: "/etc/nginx/certs",
+  key_name: "privkey.key",
+  key_path: "/etc/nginx/certs",
+  auto_renew: false,
+})
 
 function formatTime(t: string) {
   if (!t) return "-"
@@ -135,10 +195,47 @@ async function loadDetail() {
   try {
     const { data } = await getCertificateDetail(id)
     cert.value = data
+    deployForm.enabled = data.deploy_enabled
+    deployForm.node_id = data.deploy_node_id
+    deployForm.type = data.deploy_type || "nginx"
+    deployForm.cert_name = data.cert_name || "fullchain.pem"
+    deployForm.cert_path = data.cert_path || "/etc/nginx/certs"
+    deployForm.key_name = data.key_name || "privkey.key"
+    deployForm.key_path = data.key_path || "/etc/nginx/certs"
+    deployForm.auto_renew = data.auto_renew || false
   } catch (e: any) {
     error.value = e?.response?.data?.msg || "加载失败"
   } finally {
     loading.value = false
+  }
+}
+
+async function loadNodes() {
+  try {
+    const { data } = await getNodes()
+    nodes.value = data || []
+  } catch {}
+}
+
+async function saveDeploy() {
+  saving.value = true
+  try {
+    await updateCertificate(id, {
+      deploy_enabled: deployForm.enabled,
+      deploy_node_id: deployForm.node_id,
+      deploy_type: deployForm.type,
+      cert_name: deployForm.cert_name,
+      cert_path: deployForm.cert_path,
+      key_name: deployForm.key_name,
+      key_path: deployForm.key_path,
+      auto_renew: deployForm.auto_renew,
+    })
+    ElMessage.success("保存成功")
+    editing.value = false
+  } catch (e: any) {
+    ElMessage.error(e?.response?.data?.msg || "保存失败")
+  } finally {
+    saving.value = false
   }
 }
 
@@ -198,7 +295,7 @@ async function loadDeployLogs() {
   }
 }
 
-onMounted(() => { loadDetail(); loadDeployLogs() })
+onMounted(() => { loadDetail(); loadNodes(); loadDeployLogs() })
 </script>
 
 <style scoped>
@@ -213,4 +310,6 @@ onMounted(() => { loadDetail(); loadDeployLogs() })
   margin-bottom: 16px;
 }
 .section h3 { margin: 0 0 16px 0; font-size: 16px; font-weight: 600; }
+.section-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
+.section-header h3 { margin: 0; }
 </style>

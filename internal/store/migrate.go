@@ -1,4 +1,4 @@
-﻿package store
+package store
 
 import (
 	"fmt"
@@ -23,7 +23,6 @@ type Migration struct {
 }
 
 // allMigrations returns the ordered list of all migrations.
-// Append new migrations at the end as the project evolves.
 func allMigrations() []Migration {
 	return []Migration{
 		{
@@ -47,17 +46,7 @@ func allMigrations() []Migration {
 			Version:     "2026-07-02-001",
 			Description: "Rebuild unique indexes as partial (WHERE deleted_at IS NULL) for soft delete",
 			Up: func(tx *gorm.DB) error {
-				// Drop old full unique indexes
-				if err := tx.Migrator().DropIndex(&Domain{}, "idx_domains_domain"); err != nil {
-					// Index might not exist, ignore
-				}
-				if err := tx.Migrator().DropIndex(&User{}, "idx_users_email"); err != nil {
-					// Index might not exist, ignore
-				}
-				// Create new partial unique indexes
-				if err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_domain_active ON domains(domain) WHERE deleted_at IS NULL").Error; err != nil {
-					return err
-				}
+				tx.Exec("DROP INDEX IF EXISTS idx_users_email")
 				if err := tx.Exec("CREATE UNIQUE INDEX IF NOT EXISTS idx_email_active ON users(email) WHERE deleted_at IS NULL").Error; err != nil {
 					return err
 				}
@@ -74,16 +63,12 @@ func allMigrations() []Migration {
 		{
 			Version:     "2026-07-03-002",
 			Description: "Add cert/key name and path fields to domains",
-			Up: func(tx *gorm.DB) error {
-				return tx.AutoMigrate(&Domain{})
-			},
+			Up:          func(tx *gorm.DB) error { return nil },
 		},
 		{
 			Version:     "2026-07-03-003",
 			Description: "Add auto_renew field to domains",
-			Up: func(tx *gorm.DB) error {
-				return tx.AutoMigrate(&Domain{})
-			},
+			Up:          func(tx *gorm.DB) error { return nil },
 		},
 		{
 			Version:     "2026-07-03-004",
@@ -99,11 +84,65 @@ func allMigrations() []Migration {
 				return tx.AutoMigrate(&Certificate{})
 			},
 		},
+		{
+			Version:     "2026-07-10-002",
+			Description: "Merge domains into certificates, make certificates the primary unit",
+			Up: func(tx *gorm.DB) error {
+				// Check if this is an upgrade (domains table exists) or fresh install
+				var hasDomains bool
+				tx.Raw("SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='domains'").Scan(&hasDomains)
+				if !hasDomains {
+					// Fresh install: Certificate already has all columns from InitDB AutoMigrate.
+					// Remove old domain_id if it still exists (from very old schema).
+					if tx.Migrator().HasColumn(&Certificate{}, "domain_id") {
+						tx.Migrator().DropColumn(&Certificate{}, "domain_id")
+					}
+					return nil
+				}
+				// Upgrade path: add columns, copy data, drop domains table
+				cols := []struct{ name, def string }{
+					{"user_id", "0"},
+					{"email", "''"},
+					{"deploy_enabled", "0"},
+					{"deploy_node_id", "0"},
+					{"deploy_type", "'nginx'"},
+					{"cert_name", "'fullchain.pem'"},
+					{"cert_path", "'/etc/nginx/certs'"},
+					{"key_name", "'privkey.key'"},
+					{"key_path", "'/etc/nginx/certs'"},
+					{"auto_renew", "0"},
+				}
+				for _, c := range cols {
+					tx.Exec("ALTER TABLE certificates ADD COLUMN " + c.name + " INTEGER DEFAULT " + c.def)
+				}
+				tx.Exec("ALTER TABLE certificates ADD COLUMN domain TEXT DEFAULT ''")
+				if err := tx.Exec(`UPDATE certificates SET 
+					user_id = (SELECT user_id FROM domains WHERE domains.id = certificates.domain_id),
+					email = COALESCE((SELECT email FROM domains WHERE domains.id = certificates.domain_id), ''),
+					domain = COALESCE((SELECT domain FROM domains WHERE domains.id = certificates.domain_id), ''),
+					deploy_enabled = COALESCE((SELECT deploy_enabled FROM domains WHERE domains.id = certificates.domain_id), 0),
+					deploy_node_id = COALESCE((SELECT deploy_node_id FROM domains WHERE domains.id = certificates.domain_id), 0),
+					deploy_type = COALESCE((SELECT deploy_type FROM domains WHERE domains.id = certificates.domain_id), 'nginx'),
+					cert_name = COALESCE((SELECT cert_name FROM domains WHERE domains.id = certificates.domain_id), 'fullchain.pem'),
+					cert_path = COALESCE((SELECT cert_path FROM domains WHERE domains.id = certificates.domain_id), '/etc/nginx/certs'),
+					key_name = COALESCE((SELECT key_name FROM domains WHERE domains.id = certificates.domain_id), 'privkey.key'),
+					key_path = COALESCE((SELECT key_path FROM domains WHERE domains.id = certificates.domain_id), '/etc/nginx/certs'),
+					auto_renew = COALESCE((SELECT auto_renew FROM domains WHERE domains.id = certificates.domain_id), 0)
+				`).Error; err != nil {
+					return err
+				}
+				tx.Migrator().DropColumn(&Certificate{}, "domain_id")
+				// Drop domains table
+				if err := tx.Migrator().DropTable("domains"); err != nil {
+					return err
+				}
+				return nil
+			},
+		},
 	}
 }
 
 // RunMigrations applies all pending migrations in order.
-// Each migration runs inside a transaction so a failure rolls back cleanly.
 func (db *DB) RunMigrations() error {
 	if err := db.AutoMigrate(&SchemaMigration{}); err != nil {
 		return fmt.Errorf("create migrations tracking table: %w", err)

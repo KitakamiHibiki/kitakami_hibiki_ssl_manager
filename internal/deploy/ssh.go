@@ -124,19 +124,18 @@ func scpUpload(localPath, user, host string, port int, keyPath, remotePath strin
 }
 
 // Deploy uploads certificate files to the remote node and runs the reload command.
-// Key auth uses system scp; password auth uses SSH session upload.
-func Deploy(node *store.DeployNode, certDir string, dom *store.Domain) (string, error) {
-	fullchain := filepath.Join(certDir, dom.Domain, "fullchain.pem")
-	privkey := filepath.Join(certDir, dom.Domain, "privkey.pem")
-	remoteCert := path.Join(dom.CertPath, dom.CertName)
-	remoteKey := path.Join(dom.KeyPath, dom.KeyName)
+func Deploy(node *store.DeployNode, certDir string, cert *store.Certificate) (string, error) {
+	fullchain := filepath.Join(certDir, cert.Domain, "fullchain.pem")
+	privkey := filepath.Join(certDir, cert.Domain, "privkey.pem")
+	remoteCert := path.Join(cert.CertPath, cert.CertName)
+	remoteKey := path.Join(cert.KeyPath, cert.KeyName)
 
 	// mkdir first
 	client, err := connect(node)
 	if err != nil {
 		return "", fmt.Errorf("ssh connect: %w", err)
 	}
-	if _, err := runCmd(client, "mkdir -p "+dom.CertPath+" "+dom.KeyPath); err != nil {
+	if _, err := runCmd(client, "mkdir -p "+cert.CertPath+" "+cert.KeyPath); err != nil {
 		client.Close()
 		return "", fmt.Errorf("mkdir: %w", err)
 	}

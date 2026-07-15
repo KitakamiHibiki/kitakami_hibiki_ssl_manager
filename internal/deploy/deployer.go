@@ -23,21 +23,14 @@ func (d *Deployer) DeployCert(certID uint) {
 		return
 	}
 
-	dom, err := d.db.GetDomain(cert.DomainID)
+	node, err := d.db.ListNodeByID(cert.DeployNodeID)
 	if err != nil {
-		log.Printf("[deploy] domain %d not found: %v", cert.DomainID, err)
-		return
-	}
-
-	node, err := d.db.ListNodeByID(dom.DeployNodeID)
-	if err != nil {
-		log.Printf("[deploy] node %d not found: %v", dom.DeployNodeID, err)
+		log.Printf("[deploy] node %d not found: %v", cert.DeployNodeID, err)
 		return
 	}
 
 	dl := &store.DeployLog{
 		CertID:    certID,
-		DomainID:  cert.DomainID,
 		NodeID:    node.ID,
 		NodeName:  node.Name,
 		Status:    "pending",
@@ -45,7 +38,7 @@ func (d *Deployer) DeployCert(certID uint) {
 	}
 	d.db.CreateDeployLog(dl)
 
-	detail, err := Deploy(node, d.certDir, dom)
+	detail, err := Deploy(node, d.certDir, cert)
 	dl.FinishedAt = time.Now()
 	if err != nil {
 		dl.Status = "failed"

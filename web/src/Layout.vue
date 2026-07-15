@@ -7,10 +7,6 @@
           <el-icon><Monitor /></el-icon>
           <span>仪表盘</span>
         </el-menu-item>
-        <el-menu-item index="/domains">
-          <el-icon><Link /></el-icon>
-          <span>域名管理</span>
-        </el-menu-item>
         <el-menu-item index="/certs">
           <el-icon><Tickets /></el-icon>
           <span>证书管理</span>
@@ -43,7 +39,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRouter } from 'vue-router'
-import { Monitor, Link, Tickets, Upload, User } from '@element-plus/icons-vue'
+import { Monitor, Tickets, Upload, User } from '@element-plus/icons-vue'
 import { useAuth } from './stores/auth'
 
 const router = useRouter()

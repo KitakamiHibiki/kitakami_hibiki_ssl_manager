@@ -4,8 +4,8 @@
     <el-row :gutter="20">
       <el-col :span="8">
         <el-card shadow="hover">
-          <template #header>域名总数</template>
-          <div class="stat">{{ loading ? '-' : domains.length }}</div>
+          <template #header>证书总数</template>
+          <div class="stat">{{ loading ? '-' : certCount }}</div>
         </el-card>
       </el-col>
       <el-col :span="8">
@@ -20,16 +20,16 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { getDomains, getPlatform } from '../api'
+import { getCertificates, getPlatform } from '../api'
 
-const domains = ref<any[]>([])
+const certCount = ref(0)
 const platform = ref('')
 const loading = ref(true)
 
 onMounted(async () => {
   try {
-    const d = await getDomains()
-    domains.value = d.data
+    const d = await getCertificates({ page_size: 1 })
+    certCount.value = d.data.total || 0
   } catch (e) {
     console.error(e)
   }

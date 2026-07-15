@@ -4,12 +4,16 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 	"path/filepath"
 
 	"github.com/gin-gonic/gin"
 
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/acme"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/config"
+	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/dns"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/handler"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/middleware"
 	"github.com/kitakami_hibiki/kitakami_hibiki_ssl_manager/internal/platform"
@@ -42,17 +46,32 @@ func main() {
 		log.Printf("[startup] mark incomplete certs: %v", err)
 	}
 
+	// Start DNS server for CNAME-based ACME challenge verification.
+	dnsListen := cfg.Server.DNSListen
+	if dnsListen == "" {
+		dnsListen = ":53"
+	}
+	dnsHost := extractHost(cfg.Server.ProxyURL)
+	if dnsHost == "" {
+		dnsHost = "localhost"
+	}
+	dnsSrv := dns.NewServer(dns.NewStoreAdapter(db), dnsHost, dnsListen)
+	go func() {
+		if err := dnsSrv.Start(); err != nil {
+			log.Printf("[dns] server error: %v", err)
+		}
+	}()
+
 	certDir := "./certs"
 	if err := os.MkdirAll(certDir, 0755); err != nil {
 		log.Fatalf("create cert dir: %v", err)
 	}
 
 	authH := handler.NewAuthHandler(db, cfg.Auth.JWTSecret, cfg.Auth.DeployKey)
-	domainH := handler.NewDomainHandler(db)
-	certH := handler.NewCertHandler(db, cfg, certDir)
+	certH := handler.NewCertHandler(db, cfg, certDir, dnsListen)
 	certMgmtH := handler.NewCertificateHandler(db)
 	userH := handler.NewUserHandler(db)
-	deployH := handler.NewDeployHandler(db, certDir)
+	deployH := handler.NewDeployHandler(db, certDir, cfg.Server.ProxyURL)
 	sysCfgH := handler.NewSystemConfigHandler(db)
 	nodeH := handler.NewNodeHandler(db)
 
@@ -67,22 +86,13 @@ func main() {
 		api.POST("/auth/login", authH.Login)
 		api.GET("/auth/me", authMw, authH.Me)
 
-		domains := api.Group("/domains")
-		domains.Use(authMw)
-		{
-			domains.GET("", domainH.List)
-			domains.POST("", domainH.Create)
-			domains.DELETE("", domainH.Delete)
-			domains.PUT("", domainH.Update)
-			domains.GET("/detail", domainH.Get)
-		}
-
 		certs := api.Group("/certs")
 		certs.Use(authMw)
 		{
 			certs.GET("", certH.List)
 			certs.POST("/apply", certH.Apply)
 			certs.POST("/verify-dns", certH.VerifyDNS)
+			certs.POST("/verify-http-proxy", certH.VerifyHTTPProxy)
 			certs.GET("/challenge-value", certH.ChallengeValue)
 			certs.GET("/status", certH.Status)
 			certs.GET("/detail", certH.Get)
@@ -96,6 +106,7 @@ func main() {
 		{
 			certificates.GET("", certMgmtH.List)
 			certificates.GET("/detail", certMgmtH.Get)
+			certificates.PUT("", certMgmtH.Update)
 			certificates.DELETE("", certMgmtH.Delete)
 		}
 
@@ -128,6 +139,21 @@ func main() {
 		api.GET("/platform", authMw, deployH.Platform)
 	}
 
+	// ACME HTTP-01 challenge endpoint — serves challenge responses for proxied requests.
+	r.GET("/.well-known/acme-challenge/:token", func(c *gin.Context) {
+		token := c.Param("token")
+		if token == "ssl-verify" || strings.HasPrefix(token, "ssl-verify-") {
+			c.String(http.StatusOK, "ssl-verify-ok")
+			return
+		}
+		keyAuth := acme.ManualDNS.GetKeyAuthByToken(token)
+		if keyAuth == "" {
+			c.String(http.StatusNotFound, "challenge not found")
+			return
+		}
+		c.String(http.StatusOK, keyAuth)
+	})
+
 	r.NoRoute(func(c *gin.Context) {
 		c.JSON(http.StatusNotFound, gin.H{"message": "not found"})
 	})
@@ -157,4 +183,15 @@ func main() {
 	if err := r.Run(addr); err != nil {
 		log.Fatalf("server error: %v", err)
 	}
+}
+
+func extractHost(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	return u.Hostname()
 }

@@ -16,7 +16,9 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Port int `yaml:"port"`
+	Port      int    `yaml:"port"`
+	ProxyURL  string `yaml:"proxy_url"`
+	DNSListen string `yaml:"dns_listen"`
 }
 
 type ACMEConfig struct {

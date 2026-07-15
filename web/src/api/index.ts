@@ -36,17 +36,10 @@ api.interceptors.response.use(
   }
 )
 
-export interface Domain {
-  id: number
-  domain: string
-  email: string
-  challenge: string
-  created_at: string
-}
-
 export interface PlatformInfo {
   os: string
   arch: string
+  proxy_url: string
 }
 
 export interface User {
@@ -65,46 +58,29 @@ export function authRegister(email: string, password: string) {
   return api.post('/auth/register', { email, password })
 }
 
-// Domains
-export function getDomains() {
-  return api.get<Domain[]>('/domains')
-}
-
-export function createDomain(data: { domain: string; email: string; challenge?: string }) {
-  return api.post<Domain>('/domains', data)
-}
-
-export function deleteDomain(id: number) {
-  return api.delete('/domains', { params: { id } })
-}
-
 // Certificates
-export function applyCertificate(domain_id: number) {
-  return api.post('/certs/apply', { domain_id })
+export function applyCertificate(domain: string, email: string, extraDomains?: string[]) {
+  return api.post('/certs/apply', { domain, email, extra_domains: extraDomains || [] })
 }
 
 export function getCertificate(id: number) {
   return api.get('/certs/detail', { params: { id } })
 }
 
-export function getCertStatus(domain: string) {
-  return api.get('/certs/status', { params: { domain } })
+export function getCertStatus(certId: number) {
+  return api.get('/certs/status', { params: { cert_id: certId } })
 }
 
 export function verifyDNS(domain: string) {
   return api.post('/certs/verify-dns', { domain })
 }
 
+export function verifyHTTPProxy(domain: string, domainHash?: string) {
+  return api.post('/certs/verify-http-proxy', { domain, domain_hash: domainHash || '' })
+}
+
 export function getChallengeValue(domain: string) {
   return api.get('/certs/challenge-value', { params: { domain } })
-}
-
-export function getDomainDetail(id: number) {
-  return api.get('/domains/detail', { params: { id } })
-}
-
-export function updateDomain(id: number, data: any) {
-  return api.put('/domains', { id, ...data })
 }
 
 // Nodes
@@ -133,7 +109,7 @@ export function deployCert(certId: number) {
   return api.post('/certs/deploy', { cert_id: certId })
 }
 
-export function getDeployLogs(params: { cert_id?: number; domain_id?: number; page?: number; page_size?: number }) {
+export function getDeployLogs(params: { cert_id?: number; page?: number; page_size?: number }) {
   return api.get('/certs/deploy-logs', { params })
 }
 
@@ -156,12 +132,16 @@ export function deleteUser(id: number) {
 }
 
 // Certificate Management
-export function getCertificates(params?: { page?: number; page_size?: number; domain_id?: number }) {
+export function getCertificates(params?: { page?: number; page_size?: number }) {
   return api.get('/certificates', { params })
 }
 
 export function getCertificateDetail(id: number) {
   return api.get('/certificates/detail', { params: { id } })
+}
+
+export function updateCertificate(id: number, data: any) {
+  return api.put('/certificates', { id, ...data })
 }
 
 export function deleteCertificate(id: number) {

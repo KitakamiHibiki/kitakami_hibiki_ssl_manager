@@ -31,25 +31,14 @@ func (h *CertificateHandler) List(c *gin.Context) {
 	}
 	offset := (page - 1) * pageSize
 
-	domainID, _ := strconv.ParseUint(c.Query("domain_id"), 10, 64)
-
 	var certs []store.Certificate
 	var total int64
 	var err error
 
 	if role == "admin" {
-		if domainID > 0 {
-			certs, err = h.db.GetCertificatesByDomainID(uint(domainID))
-			total = int64(len(certs))
-		} else {
-			certs, total, err = h.db.ListAllCertificates(offset, pageSize)
-		}
+		certs, total, err = h.db.ListAllCertificates(offset, pageSize)
 	} else {
-		if domainID > 0 {
-			certs, total, err = h.db.ListCertificatesByDomainAndUser(uint(domainID), userID, offset, pageSize)
-		} else {
-			certs, total, err = h.db.ListCertificatesByUser(userID, offset, pageSize)
-		}
+		certs, total, err = h.db.ListCertificatesByUser(userID, offset, pageSize)
 	}
 	if err != nil {
 		response.Error(c, 500, err.Error())
@@ -88,6 +77,69 @@ func (h *CertificateHandler) Get(c *gin.Context) {
 	}
 
 	response.OK(c, cert)
+}
+
+func (h *CertificateHandler) Update(c *gin.Context) {
+	var req struct {
+		ID            uint   `json:"id"`
+		DeployEnabled *bool  `json:"deploy_enabled"`
+		DeployNodeID  *uint  `json:"deploy_node_id"`
+		DeployType    string `json:"deploy_type"`
+		CertName      string `json:"cert_name"`
+		CertPath      string `json:"cert_path"`
+		KeyName       string `json:"key_name"`
+		KeyPath       string `json:"key_path"`
+		AutoRenew     *bool  `json:"auto_renew"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.ID == 0 {
+		response.Error(c, 400, "invalid request")
+		return
+	}
+
+	userID := c.GetUint("user_id")
+	role := c.GetString("role")
+
+	cert, err := h.db.GetCertificateByID(req.ID)
+	if err != nil {
+		response.Error(c, 404, "not found")
+		return
+	}
+	if role != "admin" && cert.UserID != userID {
+		response.Error(c, 403, "not your certificate")
+		return
+	}
+
+	updates := make(map[string]interface{})
+	if req.DeployEnabled != nil {
+		updates["deploy_enabled"] = *req.DeployEnabled
+	}
+	if req.DeployNodeID != nil {
+		updates["deploy_node_id"] = *req.DeployNodeID
+	}
+	if req.DeployType != "" {
+		updates["deploy_type"] = req.DeployType
+	}
+	if req.CertName != "" {
+		updates["cert_name"] = req.CertName
+	}
+	if req.CertPath != "" {
+		updates["cert_path"] = req.CertPath
+	}
+	if req.KeyName != "" {
+		updates["key_name"] = req.KeyName
+	}
+	if req.KeyPath != "" {
+		updates["key_path"] = req.KeyPath
+	}
+	if req.AutoRenew != nil {
+		updates["auto_renew"] = *req.AutoRenew
+	}
+
+	if err := h.db.UpdateCertificate(req.ID, updates); err != nil {
+		response.Error(c, 500, err.Error())
+		return
+	}
+	response.OK(c, gin.H{"message": "updated"})
 }
 
 func (h *CertificateHandler) Delete(c *gin.Context) {

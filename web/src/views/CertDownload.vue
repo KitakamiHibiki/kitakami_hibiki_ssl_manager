@@ -2,7 +2,7 @@
   <div class="cert-download-page">
     <div class="header">
       <h2>证书下载</h2>
-      <el-button text @click="$router.push(`/domains/detail?id=${domainId}`)">返回域名详情</el-button>
+      <el-button text @click="$router.push(certId ? '/certs/detail?id=' + certId : '/certs')">返回证书详情</el-button>
     </div>
 
     <div v-if="status === 'issuing'" class="section loading-section">
@@ -41,7 +41,7 @@
     <div v-else-if="status === 'error'" class="section">
       <h3 style="color:#f56c6c;margin-bottom:16px">证书申请失败</h3>
       <p style="color:#f56c6c">{{ errorMsg }}</p>
-      <el-button style="margin-top:16px" @click="$router.push(`/domains/detail?id=${domainId}`)">返回域名详情</el-button>
+      <el-button style="margin-top:16px" @click="$router.push('/certs')">返回列表</el-button>
     </div>
   </div>
 </template>
@@ -55,7 +55,6 @@ import { getCertStatus, getCertificate } from "../api"
 import api from "../api"
 
 const route = useRoute()
-const domainId = Number(route.query.domain_id) || 0
 const certId = Number(route.query.cert_id) || 0
 
 const status = ref("issuing")
@@ -97,7 +96,7 @@ async function downloadFile(type: string, ext: string) {
 
 async function poll() {
   try {
-    const { data } = await getCertStatus(domain.value)
+    const { data } = await getCertStatus(certId)
     status.value = data.status
     if (data.status === "issued") {
       stopPoll()
@@ -115,7 +114,7 @@ function stopPoll() {
 }
 
 onMounted(async () => {
-  if (!domainId || !certId) {
+  if (!certId) {
     status.value = "error"
     errorMsg.value = "参数无效"
     return
